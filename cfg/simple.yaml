@@ -1,0 +1,37 @@
+device: cuda
+seed: 8888
+
+model:
+  name: ResNet34U_f
+  num_channels_output: 1
+data:
+  root: ../polypdepth_dataset/
+  dataset: kvasir_SEG
+  data2_dir: TrainDataset
+  require_depth: true
+  label_mode: percentage
+  labeled_perc: 10
+  labeled_bs: 2
+  batch_size: 4
+  shuffle: False
+  num_workers: 0
+
+total_iter: 22000
+
+optimizer:
+  lr: 0.001
+  weight_decay: 0.0001
+  momentum: 0.9
+
+scheduler:
+  power: 0.9
+
+Trainer:
+  consistency_rampup: 2000.0
+  consistency: 12.5
+  ema_decay: 0.999
+  # weight-decay: 0.0001
+  save:
+    save_dir: save_dir/
+    save_every_epoch: 1
+    save_name: meanteacher
