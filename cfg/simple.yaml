@@ -42,4 +42,4 @@ Hook:
     save_name: meanteacher
   MeanTeacherEvalHook:
     criteria: val_Dice
-    eval_every_epoch: 15
+    eval_every_epoch: 15p

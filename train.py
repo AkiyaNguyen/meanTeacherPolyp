@@ -158,8 +158,8 @@ class SimpleMeanTeacherTrainer(Trainer):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='config/simple.yaml')
-    args = argparse.parse_args()
+    parser.add_argument('--config', type=str, default='cfg/simple.yaml')
+    args = parser.parse_args()
     cfg = Config(config_file=args.config)
     
     device = get_proper_device(cfg.get('device'))
