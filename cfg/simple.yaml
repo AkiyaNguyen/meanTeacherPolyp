@@ -19,6 +19,7 @@ data:
     dataset_root: ../polypdepth_dataset/TestDataset/ClinicDB
     image_dirname: images
     mask_dirname: masks
+    batch_size: 1
 
 total_iter: 22000
 
