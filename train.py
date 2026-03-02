@@ -27,7 +27,7 @@ def softmax_mse_loss(input_logits, target_logits):
     else:
         loss = F.mse_loss(F.softmax(input_logits, dim=1), F.softmax(target_logits, dim=1), reduction='mean') / num_classes
     # return loss
-    print("loss = ", loss)
+    # print("loss = ", loss)
     return loss
 
 class SimpleMeanTeacherTrainer(Trainer):
