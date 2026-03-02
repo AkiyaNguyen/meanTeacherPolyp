@@ -157,10 +157,11 @@ class SimpleMeanTeacherTrainer(Trainer):
     
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='cfg/simple.yaml')
-    args = parser.parse_args()
-    cfg = Config(config_file=args.config)
+    parser = argparse.ArgumentParser(description='Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
+    parser.add_argument('--config', type=str, default='cfg/simple.yaml', help='Path to YAML config')
+    args, unknown = parser.parse_known_args()
+    # unknown contains key=value overrides for OmegaConf (e.g. data.root=..., Trainer.consistency_rampup=200.0)
+    cfg = Config(config_file=args.config, cli_overrides=unknown)
     
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
