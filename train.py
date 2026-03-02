@@ -42,8 +42,8 @@ class MeanTeacherEvalHook(EvalHook):
                 img = data['image'].to(device)
                 gt = data['mask'].to(device)
                 output = self.trainer.stu_model(img)
-                metrics = evaluate(output, gt)
-                for key, value in metrics.items():
+                cur_metrics = evaluate(output, gt)
+                for key, value in cur_metrics.items():
                     metrics[key].append(value)
         return {'val_'+key: value.mean() for key, value in metrics.items()}
 
