@@ -17,8 +17,8 @@ data:
   num_workers: 0
   eval:
     dataset_root: ../polypdepth_dataset/TestDataset/ClinicDB
-    image_dirname: Images
-    mask_dirname: Masks
+    image_dirname: images
+    mask_dirname: masks
 
 total_iter: 22000
 
