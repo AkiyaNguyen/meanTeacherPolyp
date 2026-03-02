@@ -102,16 +102,24 @@ class SimpleMeanTeacherTrainer(Trainer):
             output_s = self.stu_model(img_s)
             labeled_output_s = output_s[:self.labeled_bs]
             unlabeled_output_s = output_s[self.labeled_bs:]
-            print("labeled_output_s = ", labeled_output_s)
-            print("label = ", label)
+            
+            if any(torch.isnan(labeled_output_s)) or any(torch.isnan(label)):
+                print("nan detected in labeled_output_s or label")
+                continue
+            
             loss['labeled_loss'] = self.class_criterion(labeled_output_s, label)
 
             with torch.no_grad():
                 teacher_output = self.tea_model(unlabeled_img)
                 teacher_output = teacher_output.to(device)
             
-            print("unlabeled_output_s = ", unlabeled_output_s)
-            print("teacher_output = ", teacher_output)
+            ## check if any is nan
+            if any(torch.isnan(unlabeled_output_s)) or any(torch.isnan(teacher_output)):
+                print("nan detected in unlabeled_output_s or teacher_output")
+                continue
+
+            # print("unlabeled_output_s = ", unlabeled_output_s)
+            # print("teacher_output = ", teacher_output)
             loss['unlabeled_loss'] = self.consistency_criterion(unlabeled_output_s, teacher_output)
             consistency_weight = self._get_current_consistency_weight(global_step=id + self.current_epoch * len(self.train_dataloader), 
                                                                       )
