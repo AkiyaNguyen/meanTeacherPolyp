@@ -1,7 +1,11 @@
-from engine.Config import Config
+from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-
+from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
 # import engine
+
+from test.eval import evaluate, ImageFolderDataset, eval_transform
+from torchvision import transforms
+import typing
 
 
 from utils.common import *
@@ -23,13 +27,39 @@ def softmax_mse_loss(input_logits, target_logits):
     num_classes = input_logits.size()[1]
     return F.mse_loss(input_softmax, target_softmax, reduction='sum') / num_classes
 
+class MeanTeacherEvalHook(EvalHook):
+    def _run_validation(self) -> dict[typing.Any, typing.Any]:
+        self.trainer.stu_model.eval()
+        device = next(self.trainer.stu_model.parameters()).device
+        metrics = {
+            'ACC_overall': [],
+            'Dice': [],
+            'IoU': [],
+        }
+        with torch.no_grad():
+            for data in self.eval_data_loader:
+                img = data['image'].to(device)
+                gt = data['mask'].to(device)
+                output = self.trainer.stu_model(img)
+                metrics = evaluate(output, gt)
+                for key, value in metrics.items():
+                    metrics[key].append(value)
+        return {'val_'+key: value.mean() for key, value in metrics.items()}
 
-# def symmetric_mse_loss(input1, input2):
-
-#     assert input1.size() == input2.size()
-#     num_classes = input1.size()[1]
-#     return torch.sum((input1 - input2)**2) / num_classes
-
+class FrequentSaveModel(HookBase):   
+    def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
+        super().__init__(trainer)
+        self.save_dir = save_dir
+        self.save_every_epoch = save_every_epoch
+        self.save_name = save_name
+        os.makedirs(self.save_dir, exist_ok=True)
+        assert self.save_dir is not None and self.save_every_epoch >= 1 and self.save_name is not None, \
+            "save_dir and save_every_epoch must be provided when save_model is True"
+    def after_train_epoch(self) -> None:
+        if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
+            save_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth")
+            torch.save(self.trainer.stu_model.state_dict(), save_path)
+            print(f"Model saved at {save_path}")
 
 
 class SimpleMeanTeacherTrainer(Trainer):
@@ -55,16 +85,16 @@ class SimpleMeanTeacherTrainer(Trainer):
         self.class_criterion = nn.BCEWithLogitsLoss()
         self.save_model = False
 
-    def set_save(self, save_dir: str, save_name: str, save_every_epoch: int):
-        self.save_model = True
-        self.save_dir = save_dir
-        print("save_dir:", self.save_dir)
-        os.makedirs(self.save_dir, exist_ok=True)
+    # def set_save(self, save_dir: str, save_name: str, save_every_epoch: int):
+    #     self.save_model = True
+    #     self.save_dir = save_dir
+    #     print("save_dir:", self.save_dir)
+    #     os.makedirs(self.save_dir, exist_ok=True)
 
-        self.save_name = save_name
-        self.save_every_epoch = save_every_epoch
-        assert self.save_dir is not None and self.save_name is not None and self.save_every_epoch >= 1, \
-            "save_dir and save_name must be provided when save_model is True"
+    #     self.save_name = save_name
+    #     self.save_every_epoch = save_every_epoch
+    #     assert self.save_dir is not None and self.save_name is not None and self.save_every_epoch >= 1, \
+    #         "save_dir and save_name must be provided when save_model is True"
 
     def _update_ema_variable(self, global_step):
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
@@ -114,20 +144,16 @@ class SimpleMeanTeacherTrainer(Trainer):
                                                                       )
             loss['loss'] = loss['labeled_loss'] + consistency_weight * loss['unlabeled_loss']
 
+            loss['loss'].backward()
+
             ## add info for logging.
             self._add_info(loss)
-
-            loss['loss'].backward()
+            
             self.optimizer.step()
             self.scheduler.step()
 
             self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
 
-        if self.save_model:
-            if (self.current_epoch + 1) % self.save_every_epoch == 0:
-                save_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.current_epoch + 1}.pth")
-                torch.save(self.stu_model.state_dict(), save_path)
-                print(f"Model saved at {save_path}")
     
 if __name__ == '__main__':
     cfg = Config(config_file='cfg/simple.yaml')
@@ -153,6 +179,13 @@ if __name__ == '__main__':
 
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_sampler=batch_sampler, shuffle=cfg.get('data.shuffle'), num_workers=cfg.get('data.num_workers'))
 
+    eval_data = ImageFolderDataset(dataset_root=cfg.get('data.eval.dataset_root'), \
+            image_dirname=cfg.get('data.eval.image_dirname'), \
+            mask_dirname=cfg.get('data.eval.mask_dirname'), \
+            transform=eval_transform)
+    eval_dataloader = torch.utils.data.DataLoader(eval_data, batch_size=cfg.get('data.eval.batch_size'), \
+                shuffle=False, num_workers=0)
+    print(f"Total evaluation images: {len(eval_data)}")
     # === Compute nEpoch from total_iter ===
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
@@ -174,6 +207,16 @@ if __name__ == '__main__':
                                        consistency_rampup=float(cfg.get('Trainer.consistency_rampup')), \
                                         consistency=float(cfg.get('Trainer.consistency')))
     # print("save dir = ", cfg.get('save.save_dir'))   
-    trainer.set_save(save_dir=cfg.get('Trainer.save.save_dir'), save_name=cfg.get('Trainer.save.save_name'), \
-                    save_every_epoch=cfg.get('Trainer.save.save_every_epoch'))
+    hook_builder = HookBuilder(cfg, trainer)
+    hook_builder(LoggerHook, logger_file='logs/simple.json')
+    hook_builder(MeanTeacherEvalHook, eval_data_loader=eval_dataloader, criteria=cfg.get('Hook.MeanTeacherEvalHook.criteria'), \
+            eval_every_epoch=cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch'))
+    hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), save_every_epoch=cfg.get('Hook.FrequentSaveModel.save_every_epoch'), \
+            save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
+    
+    # hook_builder(MLFlowLoggerHook, experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
+    #         dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'))
+
+
+
     trainer.train()
