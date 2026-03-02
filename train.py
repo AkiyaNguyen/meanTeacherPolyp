@@ -6,7 +6,7 @@ from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
 from test.eval import evaluate, ImageFolderDataset, eval_transform
 from torchvision import transforms
 import typing
-
+import argparse
 
 from utils.common import *
 from data import dataset
@@ -156,7 +156,11 @@ class SimpleMeanTeacherTrainer(Trainer):
 
     
 if __name__ == '__main__':
-    cfg = Config(config_file='cfg/simple.yaml')
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default='config/simple.yaml')
+    args = argparse.parse_args()
+    cfg = Config(config_file=args.config)
     
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
