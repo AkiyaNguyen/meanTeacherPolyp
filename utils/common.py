@@ -2,7 +2,7 @@ import torch
 import random
 import numpy as np
 import os
-from mylib.engine.Config import Config
+from engine.Config import Config
 import models
 
 
