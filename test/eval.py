@@ -3,7 +3,7 @@ import os
 from PIL import Image
 from torchvision import transforms
 import torch
-from ..data.transform import *
+# from ..data.transform import *
 
 def evaluate(pred, gt):
     if isinstance(pred, (list, tuple)):
