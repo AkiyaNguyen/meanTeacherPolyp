@@ -141,3 +141,4 @@ opencv-python>=4.8
 tqdm>=4.65
 mlflow>=2.0
 matplotlib>=3.7
+git+https://github.com/AkiyaNguyen/meanTeacherPolyp.git
