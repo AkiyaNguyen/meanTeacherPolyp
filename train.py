@@ -3,7 +3,8 @@ from engine.Trainer import Trainer
 from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
 # import engine
 
-from test.eval import evaluate, ImageFolderDataset, eval_transform
+from test.eval import evaluate, ImageFolderDataset
+from data.transform import Resize, ToTensor
 from torchvision import transforms
 import typing
 import argparse
@@ -183,6 +184,11 @@ if __name__ == '__main__':
         cfg.get('data.labeled_bs'), cfg.get('data.batch_size') - cfg.get('data.labeled_bs'))
 
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_sampler=batch_sampler, shuffle=cfg.get('data.shuffle'), num_workers=cfg.get('data.num_workers'))
+
+    eval_transform = transforms.Compose([
+        Resize((320, 320)),
+        ToTensor(),
+    ])
 
     eval_data = ImageFolderDataset(dataset_root=cfg.get('data.eval.dataset_root'), \
             image_dirname=cfg.get('data.eval.image_dirname'), \

@@ -5,11 +5,6 @@ from torchvision import transforms
 import torch
 from ..data.transform import *
 
-eval_transform = transforms.Compose([
-    Resize((320, 320)),
-    ToTensor(),
-])
-
 def evaluate(pred, gt):
     if isinstance(pred, (list, tuple)):
         pred = pred[0]
