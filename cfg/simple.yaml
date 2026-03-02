@@ -16,7 +16,7 @@ data:
   shuffle: False
   num_workers: 0
   eval:
-    dataset_root: ../polypdepth_dataset/TestDataset/ClinicDB
+    dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
     image_dirname: images
     mask_dirname: masks
     batch_size: 1
@@ -43,4 +43,4 @@ Hook:
     save_name: meanteacher
   MeanTeacherEvalHook:
     criteria: val_Dice
-    eval_every_epoch: 15p
+    eval_every_epoch: 15

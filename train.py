@@ -21,47 +21,14 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 def softmax_mse_loss(input_logits, target_logits):
-
-    assert input_logits.size() == target_logits.size()
-    input_softmax = F.softmax(input_logits, dim=1)
-    target_softmax = F.softmax(target_logits, dim=1)
     num_classes = input_logits.size()[1]
-    return F.mse_loss(input_softmax, target_softmax, reduction='sum') / num_classes
-
-class MeanTeacherEvalHook(EvalHook):
-    def _run_validation(self) -> dict[typing.Any, typing.Any]:
-        self.trainer.stu_model.eval()
-        device = next(self.trainer.stu_model.parameters()).device
-        metrics = {
-            'ACC_overall': [],
-            'Dice': [],
-            'IoU': [],
-        }
-        with torch.no_grad():
-            for data in self.eval_data_loader:
-                img = data['image'].to(device)
-                gt = data['mask'].to(device)
-                output = self.trainer.stu_model(img)
-                cur_metrics = evaluate(output, gt)
-                for key, value in cur_metrics.items():
-                    metrics[key].append(value)
-        return {'val_'+key: np.mean(value) for key, value in metrics.items()}
-
-class FrequentSaveModel(HookBase):   
-    def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
-        super().__init__(trainer)
-        self.save_dir = save_dir
-        self.save_every_epoch = save_every_epoch
-        self.save_name = save_name
-        os.makedirs(self.save_dir, exist_ok=True)
-        assert self.save_dir is not None and self.save_every_epoch >= 1 and self.save_name is not None, \
-            "save_dir and save_every_epoch must be provided when save_model is True"
-    def after_train_epoch(self) -> None:
-        if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
-            save_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth")
-            torch.save(self.trainer.stu_model.state_dict(), save_path)
-            print(f"Model saved at {save_path}")
-
+    if num_classes == 1: ##
+        loss = F.mse_loss(torch.sigmoid(input_logits), torch.sigmoid(target_logits), reduction='mean') / num_classes
+    else:
+        loss = F.mse_loss(F.softmax(input_logits, dim=1), F.softmax(target_logits, dim=1), reduction='mean') / num_classes
+    # return loss
+    print("loss = ", loss)
+    return loss
 
 class SimpleMeanTeacherTrainer(Trainer):
     def __init__(self, stu_model, tea_model, train_dataloader, optimizer, scheduler, num_epochs, ema_alpha, \
@@ -100,7 +67,7 @@ class SimpleMeanTeacherTrainer(Trainer):
     def _update_ema_variable(self, global_step):
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
         for ema_param, param in zip(self.tea_model.parameters(), self.stu_model.parameters()):
-            ema_param.data.mul_(coeff).add_(1 - coeff, param.data)
+            ema_param.data.mul_(coeff).add_(param.data, alpha=1 - coeff)
 
     def _start_train_mode(self) -> None:
         self.stu_model.train()
@@ -140,6 +107,7 @@ class SimpleMeanTeacherTrainer(Trainer):
             with torch.no_grad():
                 teacher_output = self.tea_model(unlabeled_img)
                 teacher_output = teacher_output.to(device)
+            
             loss['unlabeled_loss'] = self.consistency_criterion(unlabeled_output_s, teacher_output)
             consistency_weight = self._get_current_consistency_weight(global_step=id + self.current_epoch * len(self.train_dataloader), 
                                                                       )
@@ -156,6 +124,44 @@ class SimpleMeanTeacherTrainer(Trainer):
             self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
 
     
+
+class MeanTeacherEvalHook(EvalHook):
+    def _run_validation(self) -> dict[typing.Any, typing.Any]:
+        # assert hasattr(self.trainer, 'stu_model')
+        self.trainer.stu_model.eval()
+        device = next(self.trainer.stu_model.parameters()).device
+        metrics = {
+            'ACC_overall': [],
+            'Dice': [],
+            'IoU': [],
+        }
+        with torch.no_grad():
+            for data in self.eval_data_loader:
+                img = data['image'].to(device)
+                gt = data['mask'].to(device)
+                output = self.trainer.stu_model(img)
+                cur_metrics = evaluate(output, gt)
+                for key, value in cur_metrics.items():
+                    metrics[key].append(value)
+        return {'val_'+key: np.mean(value) for key, value in metrics.items()}
+
+class FrequentSaveModel(HookBase):   
+    def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
+        super().__init__(trainer)
+        self.save_dir = save_dir
+        self.save_every_epoch = save_every_epoch
+        self.save_name = save_name
+        os.makedirs(self.save_dir, exist_ok=True)
+        assert self.save_dir is not None and self.save_every_epoch >= 1 and self.save_name is not None, \
+            "save_dir and save_every_epoch must be provided when save_model is True"
+    def after_train_epoch(self) -> None:
+        if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
+            save_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth")
+            torch.save(self.trainer.stu_model.state_dict(), save_path)
+            print(f"Model saved at {save_path}")
+
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
