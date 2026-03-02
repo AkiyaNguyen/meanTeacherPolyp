@@ -103,20 +103,20 @@ class SimpleMeanTeacherTrainer(Trainer):
             labeled_output_s = output_s[:self.labeled_bs]
             unlabeled_output_s = output_s[self.labeled_bs:]
             
-            if any(torch.isnan(labeled_output_s)) or any(torch.isnan(label)):
+            if torch.isnan(labeled_output_s).any() or torch.isnan(label).any():
                 print("nan detected in labeled_output_s or label")
-                continue
-            
+                exit()
+
+
             loss['labeled_loss'] = self.class_criterion(labeled_output_s, label)
 
             with torch.no_grad():
                 teacher_output = self.tea_model(unlabeled_img)
                 teacher_output = teacher_output.to(device)
             
-            ## check if any is nan
-            if any(torch.isnan(unlabeled_output_s)) or any(torch.isnan(teacher_output)):
+            if torch.isnan(unlabeled_output_s).any() or torch.isnan(teacher_output).any():
                 print("nan detected in unlabeled_output_s or teacher_output")
-                continue
+                exit()
 
             # print("unlabeled_output_s = ", unlabeled_output_s)
             # print("teacher_output = ", teacher_output)
