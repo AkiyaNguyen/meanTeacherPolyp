@@ -45,7 +45,7 @@ class MeanTeacherEvalHook(EvalHook):
                 cur_metrics = evaluate(output, gt)
                 for key, value in cur_metrics.items():
                     metrics[key].append(value)
-        return {'val_'+key: value.mean() for key, value in metrics.items()}
+        return {'val_'+key: np.mean(value) for key, value in metrics.items()}
 
 class FrequentSaveModel(HookBase):   
     def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
