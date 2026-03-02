@@ -129,7 +129,7 @@ class Decoder(nn.Module):
         d1 = self.decoder1(torch.cat((d2, e1), dim=1))
         out1 = self.outconv(d1)  # 224
 
-        return out1
+        return torch.sigmoid(out1)
 
 
 
@@ -169,9 +169,9 @@ class ResNet34U_f(nn.Module):
         d1 = self.decoder1(torch.cat((d2, e1), dim=1))
         out1 = self.outconv(d1)
         if fp:
-            return out1, e5
+            return F.sigmoid(out1), e5
         else:
-            return out1
+            return F.sigmoid(out1)
 
 class ResNet18U_f(nn.Module):
     def __init__(self, num_classes, dropout=0.1):
@@ -203,7 +203,6 @@ class ResNet18U_f(nn.Module):
         d1 = self.decoder1(torch.cat((d2, e1), dim=1))
         out1 = self.outconv(d1)
         if fp:
-            return out1, e5
+            return F.sigmoid(out1), e5
         else:
-            return out1
-
+            return F.sigmoid(out1)

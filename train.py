@@ -23,9 +23,9 @@ from utils.ramps import sigmoid_rampup
 def softmax_mse_loss(input_logits, target_logits):
     num_classes = input_logits.size()[1]
     if num_classes == 1: ##
-        loss = F.mse_loss(torch.sigmoid(input_logits), torch.sigmoid(target_logits), reduction='mean') / num_classes
+        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
     else:
-        loss = F.mse_loss(F.softmax(input_logits, dim=1), F.softmax(target_logits, dim=1), reduction='mean') / num_classes
+        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
     # return loss
     # print("loss = ", loss)
     return loss
@@ -50,7 +50,7 @@ class SimpleMeanTeacherTrainer(Trainer):
 
         self.consistency_criterion = softmax_mse_loss
 
-        self.class_criterion = nn.BCEWithLogitsLoss()
+        self.class_criterion = nn.BCELoss()
         self.save_model = False
 
     # def set_save(self, save_dir: str, save_name: str, save_every_epoch: int):
