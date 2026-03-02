@@ -3,10 +3,11 @@ import os
 from PIL import Image
 from torchvision import transforms
 import torch
+from ..data.transform import *
 
 eval_transform = transforms.Compose([
-    transforms.Resize((320, 320)),
-    transforms.ToTensor(),
+    Resize((320, 320)),
+    ToTensor(),
 ])
 
 def evaluate(pred, gt):
