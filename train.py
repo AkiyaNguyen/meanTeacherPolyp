@@ -114,9 +114,7 @@ class SimpleMeanTeacherTrainer(Trainer):
                 teacher_output = self.tea_model(unlabeled_img)
                 teacher_output = teacher_output.to(device)
             
-            # if torch.isnan(unlabeled_output_s).any() or torch.isnan(teacher_output).any():
-            #     print("nan detected in unlabeled_output_s or teacher_output")
-            #     exit()
+            assert torch.all(labeled_output_s >= 0) and torch.all(labeled_output_s <= 1), "labeled_output_s is not in [0,1]"
 
             # print("unlabeled_output_s = ", unlabeled_output_s)
             # print("teacher_output = ", teacher_output)
