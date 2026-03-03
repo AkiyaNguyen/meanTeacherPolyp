@@ -200,7 +200,7 @@ if __name__ == '__main__':
     print(f"Total training images: {total_num}, labelled: {labeled_num} ({labeled_num / total_num * 100:.2f}%)")
 
     batch_sampler = TwoStreamBatchSampler(total_num, labeled_num, \
-        cfg.get('data.labeled_bs'), cfg.get('data.batch_size') - cfg.get('data.labeled_bs'))
+        int(cfg.get('data.labeled_bs')), int(cfg.get('data.batch_size')) - int(cfg.get('data.labeled_bs')))
 
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_sampler=batch_sampler, shuffle=cfg.get('data.shuffle'), num_workers=cfg.get('data.num_workers'))
 
