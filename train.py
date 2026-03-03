@@ -131,10 +131,10 @@ class SimpleMeanTeacherTrainer(Trainer):
             self._add_info(info)
             
             self.optimizer.step()
-            self.scheduler.step()
+            # self.scheduler.step()  # once per batch
 
-            # self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
-
+            self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
+        self.scheduler.step()  # once per epoch
     
 
 class MeanTeacherEvalHook(EvalHook):

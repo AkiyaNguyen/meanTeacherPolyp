@@ -16,7 +16,7 @@ data:
   shuffle: False
   num_workers: 0
   eval:
-    dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
+    dataset_root: ../polypdepth_dataset/TestDataset/Kvasir 
     image_dirname: images
     mask_dirname: masks
     batch_size: 1
@@ -24,17 +24,17 @@ data:
 total_iter: 22000
 
 optimizer:
-  lr: 0.001
-  weight_decay: 0.0001
+  lr: 0.001 #
+  weight_decay: 0.0001 #
   momentum: 0.9
 
 scheduler:
   power: 0.9
 
 Trainer:
-  consistency_rampup: 2000.0
-  consistency: 12.5
-  ema_decay: 0.999
+  consistency_rampup: 2000.0 #
+  consistency: 12.5 #
+  ema_decay: 0.999 
   # weight-decay: 0.0001
 Hook:
   FrequentSaveModel:
