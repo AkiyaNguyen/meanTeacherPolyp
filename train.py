@@ -133,7 +133,7 @@ class SimpleMeanTeacherTrainer(Trainer):
             self.optimizer.step()
             self.scheduler.step()
 
-            self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
+            # self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
 
     
 
