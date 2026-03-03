@@ -26,8 +26,6 @@ def softmax_mse_loss(input_logits, target_logits):
         loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
     else:
         loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    # return loss
-    # print("loss = ", loss)
     return loss
 
 class SimpleMeanTeacherTrainer(Trainer):
@@ -48,9 +46,9 @@ class SimpleMeanTeacherTrainer(Trainer):
         # self.ema_decay = ema_decay
         # self.weight_decay = weight_decay
 
-        self.consistency_criterion = softmax_mse_loss
 
         self.class_criterion = nn.BCELoss()
+        self.consistency_criterion = softmax_mse_loss
         self.save_model = False
 
     # def set_save(self, save_dir: str, save_name: str, save_every_epoch: int):
@@ -79,7 +77,7 @@ class SimpleMeanTeacherTrainer(Trainer):
 
     def run_step_(self) -> None:
         device = next(self.stu_model.parameters()).device
-        loss = {}
+        info = {}
         for id, data in enumerate(self.train_dataloader):
             self.optimizer.zero_grad()
 
@@ -110,7 +108,7 @@ class SimpleMeanTeacherTrainer(Trainer):
             # print("label = ", label)
 
 
-            loss['labeled_loss'] = self.class_criterion(labeled_output_s, label)
+            info['labeled_loss'] = self.class_criterion(labeled_output_s, label)
 
             with torch.no_grad():
                 teacher_output = self.tea_model(unlabeled_img)
@@ -123,15 +121,16 @@ class SimpleMeanTeacherTrainer(Trainer):
             # print("unlabeled_output_s = ", unlabeled_output_s)
             # print("teacher_output = ", teacher_output)
 
-            loss['unlabeled_loss'] = self.consistency_criterion(unlabeled_output_s, teacher_output)
+            info['unlabeled_loss'] = self.consistency_criterion(unlabeled_output_s, teacher_output)
             consistency_weight = self._get_current_consistency_weight(global_step=id + self.current_epoch * len(self.train_dataloader), 
                                                                       )
-            loss['loss'] = loss['labeled_loss'] + consistency_weight * loss['unlabeled_loss']
-
-            loss['loss'].backward()
+            info['loss'] = info['labeled_loss'] + consistency_weight * info['unlabeled_loss']
+            info['consistency_weight'] = consistency_weight
+    
+            info['loss'].backward()
 
             ## add info for logging.
-            self._add_info(loss)
+            self._add_info(info)
             
             self.optimizer.step()
             self.scheduler.step()
@@ -143,6 +142,7 @@ class SimpleMeanTeacherTrainer(Trainer):
 class MeanTeacherEvalHook(EvalHook):
     def _run_validation(self) -> dict[typing.Any, typing.Any]:
         # assert hasattr(self.trainer, 'stu_model')
+        assert isinstance(self.trainer, SimpleMeanTeacherTrainer)
         self.trainer.stu_model.eval()
         device = next(self.trainer.stu_model.parameters()).device
         metrics = {
@@ -161,7 +161,7 @@ class MeanTeacherEvalHook(EvalHook):
         return {'val_'+key: np.mean(value) for key, value in metrics.items()}
 
 class FrequentSaveModel(HookBase):   
-    def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
+    def __init__(self, trainer: SimpleMeanTeacherTrainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
         super().__init__(trainer)
         self.save_dir = save_dir
         self.save_every_epoch = save_every_epoch
