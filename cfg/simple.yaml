@@ -60,3 +60,6 @@ Hook:
     - val_Dice
     - val_IoU
     - val_ACC_overall
+    - test_Dice
+    - test_IoU
+    - test_ACC_overall

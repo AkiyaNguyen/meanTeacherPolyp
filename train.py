@@ -18,6 +18,8 @@ from data.batch_sampler import TwoStreamBatchSampler
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
+import optuna
+
 
 from torch.optim.lr_scheduler import LambdaLR
 
@@ -194,23 +196,31 @@ class FrequentSaveModel(HookBase):
             print(f"Teacher saved at {tea_path}")
 
 
-
-if __name__ == '__main__':
-
+def training(trial):
     parser = argparse.ArgumentParser(description='Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
     parser.add_argument('--config', type=str, default='cfg/simple.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()
     # unknown contains key=value overrides for OmegaConf (e.g. data.root=..., Trainer.consistency_rampup=200.0)
     cfg = Config(config_file=args.config, cli_overrides=unknown)
+
     
+    ## ================ optimizer sweeping ==========================
+    sweep_dict = {}
+    sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
+    sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 2000)
+    sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 500, 700)
+
+    for key, value in sweep_dict:
+        cfg.set(key, value)
+        
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
 
 
     val_perc = int(cfg.get('data.val_split_perc', 0))
 
-    resize_h = cfg.get('data.test.resize_height') or cfg.get('data.eval.resize_height', 320)
-    resize_w = cfg.get('data.test.resize_width') or cfg.get('data.eval.resize_width', 320)
+    resize_h = cfg.get('data.eval.resize_height', 320)
+    resize_w = cfg.get('data.eval.resize_width', 320)
     val_test_transform = transforms.Compose([
         Resize((resize_w, resize_h)),
         ToTensor()
@@ -311,10 +321,11 @@ if __name__ == '__main__':
      
     hook_builder = HookBuilder(cfg, trainer)
     if val_dataloader is not None:
-        hook_builder(MeanTeacherEvalHook, eval_data_loader=val_dataloader, \
+        val_hook = hook_builder(MeanTeacherEvalHook, eval_data_loader=val_dataloader, \
                 eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='val_')
-    
-    hook_builder(MeanTeacherEvalHook, eval_data_loader=test_dataloader, \
+    else:
+        val_hook = None
+    test_hook = hook_builder(MeanTeacherEvalHook, eval_data_loader=test_dataloader, \
                  eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
         
     hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), \
@@ -330,3 +341,13 @@ if __name__ == '__main__':
 
 
     trainer.train()
+
+    ## add this for optuna tuning
+    criteria = 'val_Dice' if val_hook is not None else 'test_Dice'
+    return trainer.info_storage.latest_info()[criteria]
+
+if __name__ == '__main__':
+    
+    study = optuna.create_study(direction='maximize')
+    study.optimize(training, n_trials=15)
+    
