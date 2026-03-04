@@ -210,7 +210,7 @@ def training(trial):
     sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 2000)
     sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 500, 700)
 
-    for key, value in sweep_dict:
+    for key, value in sweep_dict.items():
         cfg.set(key, value)
         
     device = get_proper_device(cfg.get('device'))
