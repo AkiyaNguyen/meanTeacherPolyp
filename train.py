@@ -136,7 +136,7 @@ class SimpleMeanTeacherTrainer(Trainer):
 
             self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
         self.scheduler.step()  # once per epoch
-    
+
 
 class MeanTeacherEvalHook(EvalHook):
     def __init__(self, trainer: SimpleMeanTeacherTrainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int) -> None:
@@ -255,12 +255,15 @@ if __name__ == '__main__':
     hook_builder = HookBuilder(cfg, trainer)
     hook_builder(MeanTeacherEvalHook, eval_data_loader=eval_dataloader, \
             eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')))
-    hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
+    hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), \
+                save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
             save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
     hook_builder(LoggerHook, logger_file='logs/simple.json')
     
-    # hook_builder(MLFlowLoggerHook, experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
-    #         dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'))
+    hook_builder(MLFlowLoggerHook, dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')), \
+        experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
+        dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'), \
+        logging_fields=List[str](cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
 
 
 
