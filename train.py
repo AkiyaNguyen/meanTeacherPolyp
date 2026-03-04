@@ -281,7 +281,7 @@ if __name__ == '__main__':
         raise ValueError("val_perc must be between 0 and 100.")
     
 
-    test_data = ImageFolderDataset(dataset_root=cfg.get('data.test.data_root'), image_dirname=cfg.get('data.test.image_dirname'), \
+    test_data = ImageFolderDataset(dataset_root=cfg.get('data.test.dataset_root'), image_dirname=cfg.get('data.test.image_dirname'), \
                         mask_dirname=str(cfg.get('data.test.mask_dirname')), transform=val_test_transform, list_name=None)
 
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=cfg.get('data.test.batch_size'), \
