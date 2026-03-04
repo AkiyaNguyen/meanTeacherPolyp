@@ -260,10 +260,11 @@ if __name__ == '__main__':
             save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
     hook_builder(LoggerHook, logger_file='logs/simple.json')
     
-    hook_builder(MLFlowLoggerHook, dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')), \
-        experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
-        dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'), \
-        logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
+    hook_builder(MLFlowLoggerHook, dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')), \
+                dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')), \
+                experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
+                dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'), \
+                logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
 
 
 
