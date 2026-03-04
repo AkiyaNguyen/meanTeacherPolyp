@@ -3,6 +3,7 @@ import os
 from PIL import Image
 from torchvision import transforms
 import torch
+from typing import List
 # from ..data.transform import *
 
 def evaluate(pred, gt):
@@ -44,10 +45,11 @@ def evaluate(pred, gt):
 
 class ImageFolderDataset(Dataset):
     """Dataset for loading image and mask pairs from folders."""
-    def __init__(self, dataset_root, image_dirname, mask_dirname, transform=None):
+    def __init__(self, dataset_root, image_dirname, mask_dirname, transform=None, list_name: List[str] | None = None):
         self.image_path = os.path.join(dataset_root, image_dirname)
         self.mask_path = os.path.join(dataset_root, mask_dirname)
-        self.image_files = sorted([f for f in os.listdir(self.image_path) if f.endswith(('.png', '.jpg', '.jpeg'))])
+        self.image_files = sorted([f for f in os.listdir(self.image_path) if f.endswith(('.png', '.jpg', '.jpeg'))]) if \
+            list_name is None else list_name
         self.transform = transform
 
     def __len__(self):

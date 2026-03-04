@@ -1,4 +1,5 @@
 import os
+from typing import List
 # from utils.transform import *
 from .transform import *
 from torch.utils.data import Dataset
@@ -15,7 +16,8 @@ def blur(img, p=0.5):
 
 # kvasir_SEG/ CVC-ClinicDB /kvasir_SEG + CVC-ClinicDB
 class kvasir_SEG(Dataset):
-    def __init__(self, root, data2_dir, mode='train', transform=None, require_depth=True):
+    def __init__(self, root, data2_dir, mode='train', transform=None, require_depth=True, list_name: List[str] | None = None):
+
         super(kvasir_SEG, self).__init__()
         self.data_path = os.path.join(root, data2_dir)
         self.require_depth = require_depth
@@ -25,7 +27,8 @@ class kvasir_SEG(Dataset):
         self.gt_list = []
         self.mode = mode
 
-        self.images_list = os.listdir(os.path.join(self.data_path, 'images'))  # images folder
+        self.images_list = os.listdir(os.path.join(self.data_path, 'images')) if list_name is None \
+            else list_name
         self.images_list = sorted(self.images_list)
 
         for img_id in self.images_list:

@@ -1,6 +1,9 @@
+from ctypes.util import test
+
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
 from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
+from torchvision.datasets import ImageFolder
 # import engine
 
 from test.eval import evaluate, ImageFolderDataset
@@ -139,9 +142,10 @@ class SimpleMeanTeacherTrainer(Trainer):
 
 
 class MeanTeacherEvalHook(EvalHook):
-    def __init__(self, trainer: SimpleMeanTeacherTrainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int) -> None:
+    def __init__(self, trainer: SimpleMeanTeacherTrainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
         super().__init__(trainer, eval_data_loader)
         self.eval_every_epoch = eval_every_epoch
+        self.prefix = prefix 
         assert self.eval_every_epoch >= 1, "eval_every_epoch must be at least 1"
     def _run_validation(self) -> dict[typing.Any, typing.Any]:
         # assert hasattr(self.trainer, 'stu_model')
@@ -161,7 +165,8 @@ class MeanTeacherEvalHook(EvalHook):
                 cur_metrics = evaluate(output, gt)
                 for key, value in cur_metrics.items():
                     metrics[key].append(value)
-        return {'val_'+key: np.mean(value) for key, value in metrics.items()}
+        
+        return {self.prefix + key: np.mean(value) for key, value in metrics.items()}
     def after_train_epoch(self) -> None:
         if (self.trainer.current_epoch + 1) % self.eval_every_epoch == 0:
             result = self._run_validation()
@@ -183,8 +188,8 @@ class FrequentSaveModel(HookBase):
             # Primary checkpoint = student (same model as val_Dice during training); also save teacher
             stu_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{epoch}.pth")
             tea_path = os.path.join(self.save_dir, f"{self.save_name}_teacher_epoch{epoch}.pth")
-            torch.save(self.trainer.stu_model.state_dict(), stu_path)
-            torch.save(self.trainer.tea_model.state_dict(), tea_path)
+            torch.save(self.trainer.stu_model.state_dict(), stu_path) # type: ignore
+            torch.save(self.trainer.tea_model.state_dict(), tea_path) # type: ignore
             print(f"Student saved at {stu_path}")
             print(f"Teacher saved at {tea_path}")
 
@@ -200,37 +205,89 @@ if __name__ == '__main__':
     
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
-    
-    train_data = getattr(dataset, cfg.get('data.dataset'))(root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'), \
-        mode='train', require_depth=cfg.get('data.require_depth'))
-    total_num = len(train_data) ## 1450
 
-    if cfg.get('data.label_mode') == 'percentage':
-        labeled_num = round(total_num * cfg.get('data.labeled_perc') / 100)
-        if labeled_num % 2 != 0:
-            labeled_num -= 1
-    else:
-        labeled_num = cfg.get('data.labeled_num')
-    ## labeled_num = 144
-    print(f"Total training images: {total_num}, labelled: {labeled_num} ({labeled_num / total_num * 100:.2f}%)")
 
-    batch_sampler = TwoStreamBatchSampler(total_num, labeled_num, \
-        int(cfg.get('data.labeled_bs')), int(cfg.get('data.batch_size')) - int(cfg.get('data.labeled_bs')))
+    val_perc = int(cfg.get('data.val_split_perc', 0))
 
-    train_dataloader = torch.utils.data.DataLoader(train_data, batch_sampler=batch_sampler, shuffle=cfg.get('data.shuffle'), num_workers=cfg.get('data.num_workers'))
-
-    eval_transform = transforms.Compose([
-        Resize((320, 320)),
-        ToTensor(),
+    resize_h = cfg.get('data.test.resize_height') or cfg.get('data.eval.resize_height', 320)
+    resize_w = cfg.get('data.test.resize_width') or cfg.get('data.eval.resize_width', 320)
+    val_test_transform = transforms.Compose([
+        Resize((resize_w, resize_h)),
+        ToTensor()
     ])
 
-    eval_data = ImageFolderDataset(dataset_root=cfg.get('data.eval.dataset_root'), \
-            image_dirname=cfg.get('data.eval.image_dirname'), \
-            mask_dirname=cfg.get('data.eval.mask_dirname'), \
-            transform=eval_transform)
-    eval_dataloader = torch.utils.data.DataLoader(eval_data, batch_size=cfg.get('data.eval.batch_size'), \
-                shuffle=False, num_workers=0)
-    print(f"Total evaluation images: {len(eval_data)}")
+
+    ## build train, val dataset
+    train_dataloader, val_dataloader = None, None
+    if val_perc == 0:
+        data_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'), 'images')
+        train_data = getattr(dataset, cfg.get('data.dataset'))(root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'), \
+            mode='train', require_depth=cfg.get('data.require_depth'), list_name=None)
+        train_num = len(train_data)
+        print(f"Total training images: {train_num}")
+        if cfg.get('data.label_mode') == 'percentage':
+            labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
+            if labeled_num % 2 != 0:
+                labeled_num -= 1
+        else:
+            labeled_num = cfg.get('data.labeled_num')
+        print(f"Labelled images: {labeled_num}")
+        print(f"Unlabelled images: {train_num - labeled_num}")
+        batch_sampler = TwoStreamBatchSampler(train_num, labeled_num, \
+            int(cfg.get('data.labeled_bs')), int(cfg.get('data.batch_size')) - int(cfg.get('data.labeled_bs')))
+        train_dataloader = torch.utils.data.DataLoader(train_data, batch_sampler=batch_sampler, \
+                                                       shuffle=cfg.get('data.shuffle'), \
+                                                        num_workers=cfg.get('data.num_workers'))
+
+    elif val_perc < 100:
+        print(f"Validation split: {val_perc}%")
+        data_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'), 'images')
+        all_files = np.random.permutation([f for f in os.listdir(data_root) if f.endswith(('.png', '.jpg', '.jpeg'))]).tolist()
+        total_num = len(all_files)
+        val_num = round(total_num * val_perc / 100)
+        train_num = total_num - val_num
+        print(f"Total training images: {train_num}, validation images: {val_num}")
+        val_files = all_files[:val_num]
+        train_files = all_files[val_num:]
+
+        train_data = getattr(dataset, cfg.get('data.dataset'))(root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'), \
+            mode='train', require_depth=cfg.get('data.require_depth'), list_name=train_files)
+        
+        if cfg.get('data.label_mode') == 'percentage':
+            labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
+            if labeled_num % 2 != 0:
+                labeled_num -= 1
+        else:
+            labeled_num = cfg.get('data.labeled_num')
+        ## labeled_num = 144
+        print(f"Total training images: {train_num}, labelled: {labeled_num} ({labeled_num / train_num * 100:.2f}%)")
+        batch_sampler = TwoStreamBatchSampler(train_num, labeled_num, \
+            int(cfg.get('data.labeled_bs')), int(cfg.get('data.batch_size')) - int(cfg.get('data.labeled_bs')))
+        
+        train_dataloader = torch.utils.data.DataLoader(train_data, batch_sampler=batch_sampler, \
+                                                       shuffle=cfg.get('data.shuffle'), \
+                                                        num_workers=cfg.get('data.num_workers'))
+                                                        
+        # Val split uses training data root (same as train), restricted by list_name
+        train_dataset_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'))
+        val_data = ImageFolderDataset(dataset_root=train_dataset_root, \
+                image_dirname='images', mask_dirname='masks', \
+                transform=val_test_transform, list_name=val_files)
+    
+        val_dataloader = torch.utils.data.DataLoader(val_data, batch_size=cfg.get('data.test.batch_size'), \
+                                                     shuffle=False, num_workers=0)
+
+    else:
+        raise ValueError("val_perc must be between 0 and 100.")
+    
+
+    test_data = ImageFolderDataset(dataset_root=cfg.get('data.test.data_root'), image_dirname=cfg.get('data.test.image_dirname'), \
+                        mask_dirname=str(cfg.get('data.test.mask_dirname')), transform=val_test_transform, list_name=None)
+
+    test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=cfg.get('data.test.batch_size'), \
+                                                     shuffle=False, num_workers=0)
+
+    print(f"Total evaluation images: {len(test_dataloader)}")
     # === Compute nEpoch from total_iter ===
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
@@ -251,15 +308,19 @@ if __name__ == '__main__':
                                        nEpoch, ema_alpha=float(cfg.get('Trainer.ema_decay')), \
                                        consistency_rampup=float(cfg.get('Trainer.consistency_rampup')), \
                                         consistency=float(cfg.get('Trainer.consistency')))
-    # print("save dir = ", cfg.get('save.save_dir'))   
+     
     hook_builder = HookBuilder(cfg, trainer)
-    hook_builder(MeanTeacherEvalHook, eval_data_loader=eval_dataloader, \
-            eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')))
+    if val_dataloader is not None:
+        hook_builder(MeanTeacherEvalHook, eval_data_loader=val_dataloader, \
+                eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='val_')
+    
+    hook_builder(MeanTeacherEvalHook, eval_data_loader=test_dataloader, \
+                 eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
+        
     hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), \
                 save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
             save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
     hook_builder(LoggerHook, logger_file='logs/simple.json')
-    
     hook_builder(MLFlowLoggerHook, dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')), \
                 dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')), \
                 experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \

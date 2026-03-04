@@ -15,7 +15,10 @@ data:
   batch_size: 4
   shuffle: False
   num_workers: 0
-  eval:
+  val_split_perc: 20 # 20% of the training data for validation
+  test:
+    resize_width: 320
+    resize_height: 320
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir 
     image_dirname: images
     mask_dirname: masks
