@@ -48,6 +48,7 @@ Hook:
     criteria: val_Dice
     eval_every_epoch: 15
   MLFlowLoggerHook:
+    dagshub_token: 
     dagshub_repo_owner: 'AkiyaNguyen'
     dagshub_repo_name: 'polyp_segmentation'
     experiment_name: 'mean_teacher'
