@@ -213,6 +213,7 @@ def training(trial):
     for key, value in sweep_dict.items():
         cfg.set(key, value)
         
+    print(cfg.all_config())
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
 
