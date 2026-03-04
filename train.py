@@ -209,6 +209,7 @@ def training(trial):
     sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
     sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 2000)
     sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 500, 700)
+    sweep_dict['Trainer.consistency'] = trial.suggest_float('unsupevised_weight', 2.0, 4.0)
 
     for key, value in sweep_dict.items():
         cfg.set(key, value)
