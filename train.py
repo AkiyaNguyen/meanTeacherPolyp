@@ -76,6 +76,7 @@ class SimpleMeanTeacherTrainer(Trainer):
                                                     rampup_length=self.consistency_rampup)
 
     def run_step_(self) -> None:
+        self.stu_model.train()
         device = next(self.stu_model.parameters()).device
         info = {}
         for id, data in enumerate(self.train_dataloader):
