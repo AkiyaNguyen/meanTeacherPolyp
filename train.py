@@ -349,5 +349,5 @@ def training(trial):
 if __name__ == '__main__':
     
     study = optuna.create_study(direction='maximize')
-    study.optimize(training, n_trials=15)
+    study.optimize(training, n_trials=10)
     
