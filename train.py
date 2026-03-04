@@ -332,7 +332,7 @@ def training(trial):
                 save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
             save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
     hook_builder(LoggerHook, logger_file='logs/simple.json')
-    hook_builder(MLFlowLoggerHook, dagshub_token=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_token'), ''), \
+    hook_builder(MLFlowLoggerHook, dagshub_token=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_token', '')), \
                 dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')), \
                 dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')), \
                 experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
