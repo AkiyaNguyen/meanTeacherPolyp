@@ -138,6 +138,10 @@ class SimpleMeanTeacherTrainer(Trainer):
     
 
 class MeanTeacherEvalHook(EvalHook):
+    def __init__(self, trainer: SimpleMeanTeacherTrainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int) -> None:
+        super().__init__(trainer, eval_data_loader)
+        self.eval_every_epoch = eval_every_epoch
+        assert self.eval_every_epoch >= 1, "eval_every_epoch must be at least 1"
     def _run_validation(self) -> dict[typing.Any, typing.Any]:
         # assert hasattr(self.trainer, 'stu_model')
         assert isinstance(self.trainer, SimpleMeanTeacherTrainer)
@@ -157,6 +161,11 @@ class MeanTeacherEvalHook(EvalHook):
                 for key, value in cur_metrics.items():
                     metrics[key].append(value)
         return {'val_'+key: np.mean(value) for key, value in metrics.items()}
+    def after_train_epoch(self) -> None:
+        if (self.trainer.current_epoch + 1) % self.eval_every_epoch == 0:
+            result = self._run_validation()
+            self.trainer._add_info(result)
+
 
 class FrequentSaveModel(HookBase):   
     def __init__(self, trainer: SimpleMeanTeacherTrainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
@@ -169,9 +178,14 @@ class FrequentSaveModel(HookBase):
             "save_dir and save_every_epoch must be provided when save_model is True"
     def after_train_epoch(self) -> None:
         if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
-            save_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth")
-            torch.save(self.trainer.stu_model.state_dict(), save_path)
-            print(f"Model saved at {save_path}")
+            epoch = self.trainer.current_epoch + 1
+            # Primary checkpoint = student (same model as val_Dice during training); also save teacher
+            stu_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{epoch}.pth")
+            tea_path = os.path.join(self.save_dir, f"{self.save_name}_teacher_epoch{epoch}.pth")
+            torch.save(self.trainer.stu_model.state_dict(), stu_path)
+            torch.save(self.trainer.tea_model.state_dict(), tea_path)
+            print(f"Student saved at {stu_path}")
+            print(f"Teacher saved at {tea_path}")
 
 
 
@@ -238,11 +252,11 @@ if __name__ == '__main__':
                                         consistency=float(cfg.get('Trainer.consistency')))
     # print("save dir = ", cfg.get('save.save_dir'))   
     hook_builder = HookBuilder(cfg, trainer)
-    hook_builder(LoggerHook, logger_file='logs/simple.json')
-    hook_builder(MeanTeacherEvalHook, eval_data_loader=eval_dataloader, criteria=cfg.get('Hook.MeanTeacherEvalHook.criteria'), \
-            eval_every_epoch=cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch'))
-    hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), save_every_epoch=cfg.get('Hook.FrequentSaveModel.save_every_epoch'), \
+    hook_builder(MeanTeacherEvalHook, eval_data_loader=eval_dataloader, \
+            eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')))
+    hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
             save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
+    hook_builder(LoggerHook, logger_file='logs/simple.json')
     
     # hook_builder(MLFlowLoggerHook, experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
     #         dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'))

@@ -9,10 +9,13 @@ def evaluate(pred, gt):
     if isinstance(pred, (list, tuple)):
         pred = pred[0]
 
-    pred_binary = pred.round().float()
+    # Binarize: pred in [0,1] from sigmoid; threshold 0.5
+    pred_binary = (pred >= 0.5).float()
     pred_binary_inverse = (pred_binary == 0).float()
 
-    gt_binary = gt.round().float()
+    # GT: support both 0/255 (ToTensor -> 0 and 1) and 0/1 (ToTensor -> 0 and 1/255)
+    gt_max = gt.max().item()
+    gt_binary = (gt > 0.5).float() if gt_max > 0.5 else (gt > 0).float()
     gt_binary_inverse = (gt_binary == 0).float()
 
     TP = pred_binary.mul(gt_binary).sum()
@@ -20,19 +23,15 @@ def evaluate(pred, gt):
     TN = pred_binary_inverse.mul(gt_binary_inverse).sum()
     FN = pred_binary_inverse.mul(gt_binary).sum()
 
-    if TP.item() == 0:
-        TP = torch.tensor(1.0, device=pred.device)
     # Acc
     ACC_overall = (TP + TN) / (TP + FP + FN + TN + 1e-8)
-
-
-    # IoU
+    # IoU (no overlap -> 0)
     IoU_poly = TP / (TP + FP + FN + 1e-8)
 
-    # Dice
-    size = pred.size(0)
-    pred_flat = pred.view(size, -1)
-    target_flat = gt.view(size, -1)
+    # Dice (same binarization as ACC/IoU)
+    size = pred_binary.size(0)
+    pred_flat = pred_binary.view(size, -1)
+    target_flat = gt_binary.view(size, -1)
     intersection = (pred_flat * target_flat).sum(dim=1)
     dice_score = torch.mean((2 * intersection + 1e-8) / (pred_flat.sum(dim=1) + target_flat.sum(dim=1) + 1e-8))
 
