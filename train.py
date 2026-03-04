@@ -344,7 +344,10 @@ def training(trial):
 
     ## add this for optuna tuning
     criteria = 'val_Dice' if val_hook is not None else 'test_Dice'
-    return trainer.info_storage.latest_info()[criteria]
+    for info in reversed(trainer.info_storage.info_storage):
+        if criteria in info:
+            return info[criteria]
+    raise ValueError(f"Criteria {criteria} does not exist in info_storage")
 
 if __name__ == '__main__':
     
