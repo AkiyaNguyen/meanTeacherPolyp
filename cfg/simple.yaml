@@ -13,7 +13,7 @@ data:
   labeled_perc: 10
   labeled_bs: 2
   batch_size: 4
-  shuffle: True
+  shuffle: False
   num_workers: 0
   eval:
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir 
