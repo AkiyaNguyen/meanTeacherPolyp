@@ -267,24 +267,14 @@ class FrequentSaveModel(HookBase):
             print(f"Teacher saved at {tea_path}")
 
 
-def training(trial):
+def training():
     parser = argparse.ArgumentParser(description='Depth Enhanced RGB-D Polyp Segmentation with Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
     parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()
     # unknown contains key=value overrides for OmegaConf (e.g. data.root=..., Trainer.consistency_rampup=200.0)
     cfg = Config(config_file=args.config, cli_overrides=unknown)
-
-    
-    ## ================ optimizer sweeping ==========================
-    sweep_dict = {}
-    sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
-    # sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 1500)
-    sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 2000, 5000)
-    sweep_dict['Trainer.consistency'] = trial.suggest_float('unsupevised_weight', 2.0, 4.0)
-
-    for key, value in sweep_dict.items():
-        cfg.set(key, value)
         
+
     print(cfg.all_config())
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
@@ -426,21 +416,11 @@ def training(trial):
                 experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
                 dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'), \
                 logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
-    hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+    # hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
 
     trainer.train()
 
-    ## add this for optuna tuning
-    criteria = 'val_tea_rgb_Dice' if val_hook is not None else 'test_tea_rgb_Dice'
-    for info in reversed(trainer.info_storage.info_storage):
-        if criteria in info:
-            return info[criteria]
-    raise ValueError(f"Criteria {criteria} does not exist in info_storage")
-
 if __name__ == '__main__':
-    
-    study = optuna.create_study(direction='maximize')
-    study.optimize(training, n_trials=7)
-    
-    
+    training()
+    print("Training completed!")

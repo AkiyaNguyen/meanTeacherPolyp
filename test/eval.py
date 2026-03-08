@@ -45,9 +45,14 @@ def evaluate(pred, gt):
 
 class ImageFolderDataset(Dataset):
     """Dataset for loading image and mask pairs from folders."""
-    def __init__(self, dataset_root, image_dirname, mask_dirname, transform=None, list_name: List[str] | None = None):
+    def __init__(self, dataset_root, image_dirname, mask_dirname, depth_dirname='',transform=None, list_name: List[str] | None = None):
         self.image_path = os.path.join(dataset_root, image_dirname)
         self.mask_path = os.path.join(dataset_root, mask_dirname)
+        if depth_dirname != '' and depth_dirname is not None:    
+            self.depth_path = os.path.join(dataset_root, depth_dirname)
+        else:
+            self.depth_path = None
+
         self.image_files = sorted([f for f in os.listdir(self.image_path) if f.endswith(('.png', '.jpg', '.jpeg'))]) if \
             list_name is None else list_name
         self.transform = transform
@@ -64,17 +69,21 @@ class ImageFolderDataset(Dataset):
         mask_path = os.path.join(self.mask_path, mask_name)
         mask = Image.open(mask_path).convert('L')
 
-        if self.transform:
-            data = {'image': img, 'label': mask}
-            data = self.transform(data)
-            img_resized, mask_resized = data['image'], data['label']
-        else:
-            img_resized = img
-            mask_resized = mask
+        depth = None
+        if self.depth_path is not None:
+            depth_name = self.image_files[index]
+            depth_path = os.path.join(self.depth_path, depth_name)
+            depth = Image.open(depth_path).convert('RGB')
 
+
+        if self.transform:
+            data = {'image': img, 'mask': mask}
+            if depth is not None:
+                data.update({'depth': depth})
+            
+            data = self.transform(data)
         return {
-            'image': img_resized,
-            'mask': mask_resized,
+            **data,
             'filename': self.image_files[index],
             'original_size': original_size
         }

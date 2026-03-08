@@ -277,7 +277,7 @@ def training(trial):
         # Val split uses training data root (same as train), restricted by list_name
         train_dataset_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'))
         val_data = ImageFolderDataset(dataset_root=train_dataset_root, \
-                image_dirname='images', mask_dirname='masks', \
+                image_dirname='images', mask_dirname='masks', depth_dirname='depths', \
                 transform=val_test_transform, list_name=val_files)
     
         val_dataloader = torch.utils.data.DataLoader(val_data, batch_size=cfg.get('data.test.batch_size'), \
@@ -288,7 +288,9 @@ def training(trial):
     
 
     test_data = ImageFolderDataset(dataset_root=cfg.get('data.test.dataset_root'), image_dirname=cfg.get('data.test.image_dirname'), \
-                        mask_dirname=str(cfg.get('data.test.mask_dirname')), transform=val_test_transform, list_name=None)
+                        mask_dirname=str(cfg.get('data.test.mask_dirname')), \
+                        depth_dirname=str(cfg.get('data.test.depth_dirname')), \
+                        transform=val_test_transform, list_name=None)
 
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=cfg.get('data.test.batch_size'), \
                                                      shuffle=False, num_workers=0)
