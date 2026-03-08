@@ -221,10 +221,11 @@ class MeanTeacherEvalHook(EvalHook):
             for data in self.eval_data_loader:
                 img = data['image'].to(device)
                 gt = data['mask'].to(device)
+                depth = data['depth'].to(device)
                 stu_output = self.trainer.stu_model(img) # type:ignore
                 cur_stu_metrics = evaluate(stu_output, gt)
 
-                tea_output = self.trainer.tea_model(img)
+                tea_output = self.trainer.tea_model(img, depth)
                 tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
 
                 cur_tea_rgb_metrics = evaluate(tea_rgb_output, gt)
