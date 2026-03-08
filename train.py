@@ -54,18 +54,7 @@ class SimpleMeanTeacherTrainer(Trainer):
 
         self.class_criterion = nn.BCELoss()
         self.consistency_criterion = softmax_mse_loss
-        self.save_model = False
-
-    # def set_save(self, save_dir: str, save_name: str, save_every_epoch: int):
-    #     self.save_model = True
-    #     self.save_dir = save_dir
-    #     print("save_dir:", self.save_dir)
-    #     os.makedirs(self.save_dir, exist_ok=True)
-
-    #     self.save_name = save_name
-    #     self.save_every_epoch = save_every_epoch
-    #     assert self.save_dir is not None and self.save_name is not None and self.save_every_epoch >= 1, \
-    #         "save_dir and save_name must be provided when save_model is True"
+        # self.save_model = False
 
     def _update_ema_variable(self, global_step):
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
@@ -83,9 +72,11 @@ class SimpleMeanTeacherTrainer(Trainer):
     def run_step_(self) -> None:
         self.stu_model.train()
         device = next(self.stu_model.parameters()).device
-        info = {}
+        all_info = {'labeled_loss': [], 'unlabeled_loss': [], 'consistency_weight': [], \
+                 'loss': []}
         for id, data in enumerate(self.train_dataloader):
             self.optimizer.zero_grad()
+            info = {}
 
             # img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label = data['image_s'], data['image'], data['label']
@@ -122,9 +113,6 @@ class SimpleMeanTeacherTrainer(Trainer):
             
             assert torch.all(labeled_output_s >= 0) and torch.all(labeled_output_s <= 1), "labeled_output_s is not in [0,1]"
 
-            # print("unlabeled_output_s = ", unlabeled_output_s)
-            # print("teacher_output = ", teacher_output)
-
             info['unlabeled_loss'] = self.consistency_criterion(unlabeled_output_s, teacher_output)
             consistency_weight = self._get_current_consistency_weight(global_step=id + self.current_epoch * len(self.train_dataloader), 
                                                                       )
@@ -134,7 +122,9 @@ class SimpleMeanTeacherTrainer(Trainer):
             info['loss'].backward()
 
             ## add info for logging.
-            self._add_info(info)
+            for key in all_info.keys():
+                all_info[key].append(info[key])
+
             
             self.optimizer.step()
             # self.scheduler.step()  # once per batch
@@ -142,16 +132,18 @@ class SimpleMeanTeacherTrainer(Trainer):
             self._update_ema_variable(global_step=id + self.current_epoch * len(self.train_dataloader))
         self.scheduler.step()  # once per epoch
 
+        ## add average info for logging.
+        self._add_info({key: np.mean(all_info[key]) for key in all_info.keys()})
+
 
 class MeanTeacherEvalHook(EvalHook):
-    def __init__(self, trainer: SimpleMeanTeacherTrainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
+    def __init__(self, trainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
         super().__init__(trainer, eval_data_loader)
         self.eval_every_epoch = eval_every_epoch
         self.prefix = prefix 
         assert self.eval_every_epoch >= 1, "eval_every_epoch must be at least 1"
     def _run_validation(self) -> dict[typing.Any, typing.Any]:
-        # assert hasattr(self.trainer, 'stu_model')
-        assert isinstance(self.trainer, SimpleMeanTeacherTrainer)
+        assert hasattr(self.trainer, 'stu_model')
         self.trainer.stu_model.eval()
         device = next(self.trainer.stu_model.parameters()).device
         metrics = {
@@ -176,7 +168,7 @@ class MeanTeacherEvalHook(EvalHook):
 
 
 class FrequentSaveModel(HookBase):   
-    def __init__(self, trainer: SimpleMeanTeacherTrainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
+    def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
         super().__init__(trainer)
         self.save_dir = save_dir
         self.save_every_epoch = save_every_epoch
@@ -187,6 +179,8 @@ class FrequentSaveModel(HookBase):
     def after_train_epoch(self) -> None:
         if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
             epoch = self.trainer.current_epoch + 1
+            assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model'),\
+                 "trainer must have stu_model and tea_model attributes"
             # Primary checkpoint = student (same model as val_Dice during training); also save teacher
             stu_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{epoch}.pth")
             tea_path = os.path.join(self.save_dir, f"{self.save_name}_teacher_epoch{epoch}.pth")
@@ -311,7 +305,8 @@ def training(trial):
     model = generate_model(cfg).to(device)
     ema_model = generate_model(cfg, ema=True).to(device)
     
-    optimizer = torch.optim.SGD(model.parameters(), lr=cfg.get('optimizer.lr'), momentum=cfg.get('optimizer.momentum'), weight_decay=cfg.get('optimizer.weight_decay'))
+    optimizer = torch.optim.SGD(model.parameters(), lr=cfg.get('optimizer.lr'), \
+                                momentum=cfg.get('optimizer.momentum'), weight_decay=cfg.get('optimizer.weight_decay'))
 
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.get('scheduler.step_size'), gamma=cfg.get('scheduler.gamma'))
     scheduler = LambdaLR(optimizer, lambda e: 1.0 - pow((e / nEpoch), float(cfg.get('scheduler.power'))))

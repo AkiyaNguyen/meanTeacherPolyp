@@ -69,7 +69,7 @@ class kvasir_SEG(Dataset):
 
         img = Image.open(img).convert('RGB')
         gt = Image.open(gt).convert('L')
-        # Load depth data with 3 channels for train mode
+        # Load depth data wwith 3 channels for train mode
         depth = Image.open(depth).convert('RGB') # type: ignore
 
 

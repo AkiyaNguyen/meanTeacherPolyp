@@ -1,0 +1,71 @@
+device: cuda
+seed: 8888
+
+model:
+  stu_model:
+    name: ResNet34U_f
+  tea_model:
+    name: ResNet34U_f
+  num_channels_output: 1
+data:
+  root: ../polypdepth_dataset/
+  dataset: kvasir_SEG
+  data2_dir: TrainDataset
+  require_depth: true
+  label_mode: percentage
+  labeled_perc: 10
+  labeled_bs: 2
+  batch_size: 4
+  shuffle: False
+  num_workers: 0
+  val_split_perc: 20 # 20% of the training data for validation
+  test:
+    resize_width: 320
+    resize_height: 320
+    dataset_root: ../polypdepth_dataset/TestDataset/Kvasir 
+    image_dirname: images
+    mask_dirname: masks
+    batch_size: 1
+
+total_iter: 22000
+
+optimizer:
+  lr: 0.001 #
+  weight_decay: 0.0001 #
+  momentum: 0.9
+
+scheduler:
+  power: 0.9
+
+Trainer:
+  consistency_rampup: 2000.0 #
+  consistency: 12.5 #
+  ema_decay: 0.999 
+  # weight-decay: 0.0001
+Hook:
+  FrequentSaveModel:
+    save_dir: save_dir/
+    save_every_epoch: 30
+    save_name: meanteacher
+  MeanTeacherEvalHook:
+    criteria: val_Dice
+    eval_every_epoch: 15
+  MLFlowLoggerHook:
+    dagshub_token: 
+    dagshub_repo_owner: 'AkiyaNguyen'
+    dagshub_repo_name: 'polyp_segmentation'
+    experiment_name: 'mean_teacher'
+    dir_save_plot: 'plots'
+    logging_fields:
+    - loss
+    - labeled_loss
+    - unlabeled_loss
+    - consistency_weight
+    - val_Dice
+    - val_IoU
+    - val_ACC_overall
+    - test_Dice
+    - test_IoU
+    - test_ACC_overall
+  StopTrainAtEpoch:
+    stop_at_epoch: 30

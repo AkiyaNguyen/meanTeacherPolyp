@@ -73,6 +73,7 @@ class DepthEnhance_MT_Trainer(Trainer):
     def run_step_(self) -> None:
         """Main training loop with 2 phases per epoch"""
         self.stu_model.train()
+        self.tea_model.eval()  # Teacher in eval mode during distillation (phase 1)
         device = next(self.stu_model.parameters()).device
         
         # Phase 1 logging
@@ -183,6 +184,15 @@ class DepthEnhance_MT_Trainer(Trainer):
         self._add_info({f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()})
 
 
+class StopTrainAtEpoch(HookBase):
+    def __init__(self, trainer: Trainer, stop_at_epoch: int) -> None:
+        super().__init__(trainer)
+        self.stop_at_epoch = stop_at_epoch
+    def after_train_epoch(self) -> None:
+        if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
+            self.trainer.stop()
+            print(f"Training stopped at epoch {self.stop_at_epoch}")
+    
 
 class MeanTeacherEvalHook(EvalHook):
     def __init__(self, trainer: Trainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
@@ -252,7 +262,7 @@ class FrequentSaveModel(HookBase):
 
 def training(trial):
     parser = argparse.ArgumentParser(description='Depth Enhanced RGB-D Polyp Segmentation with Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
-    parser.add_argument('--config', type=str, default='cfg/simple.yaml', help='Path to YAML config')
+    parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()
     # unknown contains key=value overrides for OmegaConf (e.g. data.root=..., Trainer.consistency_rampup=200.0)
     cfg = Config(config_file=args.config, cli_overrides=unknown)
@@ -261,8 +271,8 @@ def training(trial):
     ## ================ optimizer sweeping ==========================
     sweep_dict = {}
     sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
-    sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 1500)
-    sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 400, 700)
+    # sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 1500)
+    sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 2000, 5000)
     sweep_dict['Trainer.consistency'] = trial.suggest_float('unsupevised_weight', 2.0, 4.0)
 
     for key, value in sweep_dict.items():
@@ -359,22 +369,25 @@ def training(trial):
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
     nEpoch = cfg.get('total_iter') // iters_per_epoch
-    print(f"Total iterations: {cfg.get('total_iter')} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
+    total_iter = cfg.get('total_iter')
+    print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
 
     
     # model = generate_model(cfg).to(device)
     # ema_model = generate_model(cfg, ema=True).to(device)
-    stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.stu_model.num_channels_output')).to(device)
-    tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.tea_model.num_channels_output')).to(device)
+    stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
+    tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
     
     optimizer = torch.optim.SGD(stu_model.parameters(), lr=cfg.get('optimizer.lr'), \
                                 momentum=cfg.get('optimizer.momentum'), weight_decay=cfg.get('optimizer.weight_decay'))
     tea_depth_branch_optimizer = torch.optim.SGD(tea_model.parameters(), lr=cfg.get('optimizer.lr'), \
                                 momentum=cfg.get('optimizer.momentum'), weight_decay=cfg.get('optimizer.weight_decay'))
 
-    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.get('scheduler.step_size'), gamma=cfg.get('scheduler.gamma'))
-    scheduler = LambdaLR(optimizer, lambda e: 1.0 - pow((e / nEpoch), float(cfg.get('scheduler.power'))))
-    tea_depth_branch_scheduler = LambdaLR(tea_depth_branch_optimizer, lambda e: 1.0 - pow((e / nEpoch), float(cfg.get('scheduler.power'))))
+    # Student: step() every batch -> lambda gets step index; decay over total_iter.
+    scheduler_power = float(cfg.get('scheduler.power'))
+    scheduler = LambdaLR(optimizer, lambda e: max(0.0, 1.0 - pow(min(e, total_iter) / total_iter, scheduler_power)))
+    # Teacher: step() once per epoch -> lambda gets epoch index; decay over nEpoch.
+    tea_depth_branch_scheduler = LambdaLR(tea_depth_branch_optimizer, lambda e: max(0.0, 1.0 - pow(min(e, nEpoch) / nEpoch, scheduler_power)))
 
     trainer = DepthEnhance_MT_Trainer(
         stu_model, tea_model, train_dataloader,
@@ -404,7 +417,7 @@ def training(trial):
                 experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'), \
                 dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'), \
                 logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
-
+    hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
 
     trainer.train()
@@ -419,6 +432,6 @@ def training(trial):
 if __name__ == '__main__':
     
     study = optuna.create_study(direction='maximize')
-    study.optimize(training, n_trials=15)
+    study.optimize(training, n_trials=7)
     
     
