@@ -1,0 +1,58 @@
+# Fully supervised ResNet34U_f with 10% labeled (same data split as MT for fair comparison)
+device: cuda
+seed: 8888
+
+model:
+  stu_model:
+    name: ResNet34U_f
+  num_channels_output: 1
+
+data:
+  root: ../polypdepth_dataset/
+  dataset: kvasir_SEG
+  data2_dir: TrainDataset
+  require_depth: false   # no depth needed for RGB-only model
+  label_mode: percentage
+  labeled_perc: 10
+  labeled_bs: 2
+  batch_size: 4
+  shuffle: true
+  num_workers: 0
+  val_split_perc: 0
+  test:
+    resize_width: 320
+    resize_height: 320
+    dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
+    image_dirname: images
+    mask_dirname: masks
+    batch_size: 1
+
+total_iter: 10000
+
+optimizer:
+  lr: 0.001
+  weight_decay: 0.0001
+  momentum: 0.9
+
+scheduler:
+  power: 0.9
+
+Hook:
+  SupervisedEvalHook:
+    eval_every_epoch: 2
+  FrequentSaveModelSingle:
+    save_dir: save_dir/
+    save_every_epoch: 5
+    save_name: supervised_10pct
+  LoggerHook:
+    logger_file: logs/supervised.json
+  MLFlowLoggerHook:
+    dagshub_repo_owner: 'AkiyaNguyen'
+    dagshub_repo_name: 'polyp_segmentation'
+    experiment_name: 'supervised_10pct'
+    dir_save_plot: 'plots'
+    logging_fields:
+      - '*loss*'
+      - '*Dice*'
+      - '*IoU*'
+      - '*ACC_overall*'
