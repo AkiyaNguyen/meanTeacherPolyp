@@ -190,7 +190,7 @@ class StopTrainAtEpoch(HookBase):
         self.stop_at_epoch = stop_at_epoch
     def after_train_epoch(self) -> None:
         if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
-            self.trainer.stop()
+            self.trainer.stop_training()
             print(f"Training stopped at epoch {self.stop_at_epoch}")
     
 
