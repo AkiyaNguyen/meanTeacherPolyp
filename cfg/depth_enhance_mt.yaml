@@ -5,7 +5,7 @@ model:
   stu_model:
     name: ResNet34U_f
   tea_model:
-    name: ResNet34U_f
+    name: Depth_W_SEFusion_ResNet34U_f
   num_channels_output: 1
 data:
   root: ../polypdepth_dataset/
@@ -54,18 +54,15 @@ Hook:
     dagshub_token: 
     dagshub_repo_owner: 'AkiyaNguyen'
     dagshub_repo_name: 'polyp_segmentation'
-    experiment_name: 'mean_teacher'
+    experiment_name: 'depth_enhance_mt'
     dir_save_plot: 'plots'
     logging_fields:
     - loss
     - labeled_loss
     - unlabeled_loss
     - consistency_weight
-    - val_Dice
-    - val_IoU
-    - val_ACC_overall
-    - test_Dice
-    - test_IoU
-    - test_ACC_overall
+    - '*Dice*'
+    - '*IoU*'
+    - '*ACC_overall*'
   StopTrainAtEpoch:
     stop_at_epoch: 30
