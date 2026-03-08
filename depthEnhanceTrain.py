@@ -78,7 +78,7 @@ class DepthEnhance_MT_Trainer(Trainer):
         
         # Phase 1 logging
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [], 
-                      'consistency_weight': [], 'phase1_loss': []}
+                      'consistency_weight': [], 'loss': []}
         phase2_info = {'teacher_labeled_loss': []}
         
         # ========== PHASE 1: Train Student + EMA Update ==========
@@ -105,9 +105,10 @@ class DepthEnhance_MT_Trainer(Trainer):
             # Teacher predictions (NO_GRAD - frozen during distillation)
             with torch.no_grad():
                 # RGB-D teacher prediction (distillation target)
-                tea_rgbd_output = self.tea_model(unlabeled_img, unlabeled_depth)['rgb_depth']
+                tea_output = self.tea_model(unlabeled_img, unlabeled_depth)
                 # RGB-only teacher prediction (baseline distillation target)
-                tea_rgb_output = self.tea_model(unlabeled_img)['rgb']
+                # tea_rgb_output = self.tea_model(unlabeled_img)['rgb']
+                tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
             
             # Compute losses
             loss_sup = self.class_criterion(labeled_stu, label)  # Supervised loss
@@ -129,14 +130,14 @@ class DepthEnhance_MT_Trainer(Trainer):
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
             
-            self._update_ema_variable(batch_id + self.current_epoch * len(self.train_dataloader))
+            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader))
             
             # Log phase 1 metrics
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
             phase1_info['unlabeled_rgb_loss'].append(loss_consist_rgb.item())
             phase1_info['consistency_weight'].append(consistency_weight)
-            phase1_info['phase1_loss'].append(total_loss.item())
+            phase1_info['loss'].append(total_loss.item())
         
             # Learning rate scheduling per iteration
             self.scheduler.step()
@@ -203,8 +204,8 @@ class MeanTeacherEvalHook(EvalHook):
     def _run_validation(self) -> dict[typing.Any, typing.Any]:
         assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model'),\
                  "trainer must have stu_model and tea_model attributes"
-        self.trainer.stu_model.eval()
-        device = next(self.trainer.stu_model.parameters()).device
+        self.trainer.stu_model.eval() # type: ignore
+        device = next(self.trainer.stu_model.parameters()).device # type: ignore
         metrics = {
             'stu_ACC_overall': [],
             'tea_ACC_overall': [],
@@ -217,10 +218,10 @@ class MeanTeacherEvalHook(EvalHook):
             for data in self.eval_data_loader:
                 img = data['image'].to(device)
                 gt = data['mask'].to(device)
-                stu_output = self.trainer.stu_model(img)
+                stu_output = self.trainer.stu_model(img) # type:ignore
                 cur_stu_metrics = evaluate(stu_output, gt)
 
-                tea_output = self.trainer.tea_model(img)
+                tea_output = self.trainer.tea_model(img) # type:ignore
                 if isinstance(tea_output, dict):
                     tea_output = tea_output['rgb'] ## no depth in inference
                 cur_tea_metrics = evaluate(tea_output, gt)

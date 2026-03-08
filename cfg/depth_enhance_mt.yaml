@@ -57,10 +57,8 @@ Hook:
     experiment_name: 'depth_enhance_mt'
     dir_save_plot: 'plots'
     logging_fields:
-    - loss
-    - labeled_loss
-    - unlabeled_loss
-    - consistency_weight
+    - '*loss*'
+    - '*weight*'
     - '*Dice*'
     - '*IoU*'
     - '*ACC_overall*'
