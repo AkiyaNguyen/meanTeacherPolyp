@@ -39,7 +39,7 @@ class kvasir_SEG(Dataset):
         if require_depth:
             self.depth_list = []
             for img_id in self.images_list:
-                self.depth_list.append(os.path.join(self.data_path, 'depths', img_id))
+                self.depth_list.append(os.path.join(self.data_path, 'depth-v1', img_id))
 
 
         if transform is None:
