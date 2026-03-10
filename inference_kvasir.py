@@ -59,10 +59,23 @@ def parse_args():
     return p.parse_args()
 
 
-def save_mask(tensor, path):
-    """tensor: (H,W) or (1,H,W) in [0,1]; save as 0/255 PNG."""
-    if tensor.dim() == 3:
-        tensor = tensor.squeeze(0)
+def save_mask(tensor, path, original_size=None):
+    """
+    tensor: (H,W) or (1,H,W) in [0,1]; save as 0/255 PNG.
+    original_size: (width, height) of original image; if set, mask is resized to this size
+    so the saved image matches original resolution (no pixelation in draw.io / figures).
+    """
+    if tensor.dim() == 2:
+        tensor = tensor.unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+    elif tensor.dim() == 3:
+        tensor = tensor.unsqueeze(0)  # (1,1,H,W)
+    if original_size is not None:
+        # original_size is (width, height); interpolate expects (N,C,H,W) with H,W = height, width
+        h, w = original_size[1], original_size[0]
+        tensor = torch.nn.functional.interpolate(
+            tensor, size=(h, w), mode="nearest"
+        )
+    tensor = tensor.squeeze(0).squeeze(0)
     arr = (tensor.cpu().numpy() >= 0.5).astype(np.uint8) * 255
     Image.fromarray(arr, mode="L").save(path)
 
@@ -126,10 +139,16 @@ def main():
             img = batch["image"].to(device)
             depth = batch["depth"].to(device)
             filenames = batch["filename"]
+            original_sizes = batch["original_size"]
             if isinstance(filenames, str):
                 filenames = [filenames]
             else:
                 filenames = list(filenames)
+            # original_size from dataset is (width, height); batch may be single tuple or list of tuples
+            if isinstance(original_sizes, (list, tuple)) and len(original_sizes) > 0 and isinstance(original_sizes[0], (list, tuple)):
+                original_sizes = list(original_sizes)
+            else:
+                original_sizes = [original_sizes] * len(filenames)
 
             stu_out = stu_model(img)
             tea_out = tea_model(img, depth)
@@ -138,14 +157,21 @@ def main():
 
             for i in range(img.size(0)):
                 base = os.path.splitext(filenames[i])[0]
-                save_mask(stu_out[i], os.path.join(args.out_dir, "stu", base + ".png"))
+                orig_size = original_sizes[i]  # (width, height)
+                save_mask(
+                    stu_out[i],
+                    os.path.join(args.out_dir, "stu", base + ".png"),
+                    original_size=orig_size,
+                )
                 save_mask(
                     tea_rgb[i],
                     os.path.join(args.out_dir, "tea_rgb", base + ".png"),
+                    original_size=orig_size,
                 )
                 save_mask(
                     tea_rgbd[i],
                     os.path.join(args.out_dir, "tea_rgbd", base + ".png"),
+                    original_size=orig_size,
                 )
 
     print(
