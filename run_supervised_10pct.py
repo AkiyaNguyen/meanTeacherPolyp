@@ -246,7 +246,7 @@ def training():
                  experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name', 'supervised_10pct'),
                  dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot', 'plots'),
                  logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields', ['*loss*', '*Dice*', '*IoU*', '*ACC*'])))
-
+    
     trainer.train()
 
 

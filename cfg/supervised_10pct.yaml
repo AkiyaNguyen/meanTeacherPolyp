@@ -36,7 +36,7 @@ optimizer:
 
 scheduler:
   power: 0.9
-
+ 
 Hook:
   SupervisedEvalHook:
     eval_every_epoch: 2
