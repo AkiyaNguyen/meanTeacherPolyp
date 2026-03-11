@@ -177,7 +177,8 @@ class DepthEnhance_MT_Trainer(Trainer):
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
-            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader))
+            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader), \
+                model_a=self.tea_model.rgb_encoder, model_b=self.stu_model.encoder1)
 
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
@@ -204,7 +205,7 @@ class DepthEnhance_MT_Trainer(Trainer):
             label = label[:self.labeled_bs]
 
 
-            for param in self.tea_model.rgb_branch.parameters():
+            for param in self.tea_model.rgb_encoder.parameters():
                 param.requires_grad_(False)
             tea_labeled_rgbd_output = self.tea_model(labeled_img, labeled_depth)
             # tea_labeled_rgbd_output = tea_labeled_output
