@@ -1,1 +1,1 @@
-from .ResUNet import ResNet34U_f, Depth_W_SEFusion_ResNet34U_f, Depth_W_CNNFusion_ResNet34U_f
+from .ResUNet import ResNet34U_f, Depth_W_SEFusion_ResNet34U_f, Depth_W_CNNFusion_ResNet34U_f, DepthFusion_ResNet34U_f_EMAEncoderOnly
