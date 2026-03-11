@@ -28,7 +28,7 @@ data:
     depth_dirname: depth-v1
     batch_size: 1
 
-total_iter: 10000
+total_iter: 50000
 
 optimizer:
   lr: 0.001 #
@@ -39,7 +39,7 @@ scheduler:
   power: 0.9
 
 Trainer:
-  consistency_rampup: 2500.0 #
+  consistency_rampup: 5000.0 #
   consistency: 2 #
   ema_decay: 0.999 
   fea_sim_weight: 0.5
@@ -69,4 +69,4 @@ Hook:
     - '*IoU*'
     - '*ACC_overall*'
   StopTrainAtEpoch:
-    stop_at_epoch: 30
+    stop_at_epoch: 50

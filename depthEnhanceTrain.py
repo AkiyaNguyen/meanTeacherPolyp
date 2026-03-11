@@ -298,10 +298,11 @@ def training(trial):
     
     ## ================ optimizer sweeping ==========================
     sweep_dict = {}
-    sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
+    sweep_dict['Trainer.fea_sim_weight'] = trial.suggest_float('fea_sim_weight', 0.0, 1.0)
+    # sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
     # sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 1500)
-    sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 2000, 5000)
-    sweep_dict['Trainer.consistency'] = trial.suggest_float('unsupevised_weight', 2.0, 4.0)
+    # sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 2000, 5000)
+    # sweep_dict['Trainer.consistency'] = trial.suggest_float('unsupevised_weight', 2.0, 4.0)
 
     for key, value in sweep_dict.items():
         cfg.set(key, value)
@@ -463,6 +464,6 @@ def training(trial):
 if __name__ == '__main__':
     
     study = optuna.create_study(direction='maximize')
-    study.optimize(training, n_trials=7)
+    study.optimize(training, n_trials=5)
     
     
