@@ -333,6 +333,8 @@ class SmartSaveHook(HookBase):
 
     def after_train(self) -> None:
         if self.ckpt is not None:
+            os.makedirs(self.save_dir, exist_ok=True)
+            
             torch.save(self.ckpt, os.path.join(self.save_dir, f"final_{self.save_name}.pth"))
             print(f"Final model saved at {os.path.join(self.save_dir, f'final_{self.save_name}.pth')}")
 
