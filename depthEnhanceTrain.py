@@ -122,7 +122,7 @@ class DepthEnhance_MT_Trainer(Trainer):
         self.tea_model.eval()
         device = next(self.stu_model.parameters()).device
 
-        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [],
+        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
                        'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
         phase2_info = {'teacher_labeled_loss': []}
 
@@ -135,6 +135,7 @@ class DepthEnhance_MT_Trainer(Trainer):
             unlabeled_img = img[self.labeled_bs:]
             unlabeled_depth = depth[self.labeled_bs:]
             unlabeled_img_s = img_s[self.labeled_bs:]
+
             label = label[:self.labeled_bs]
 
             stu_pred = self.stu_model(img_s)
@@ -143,21 +144,22 @@ class DepthEnhance_MT_Trainer(Trainer):
 
             with torch.no_grad():
                 tea_output = self.tea_model(unlabeled_img, unlabeled_depth)
-                tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
+
 
             unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(
-                unlabeled_depth, unlabeled_img_s, tea_rgbd_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
+                unlabeled_depth, unlabeled_img_s, tea_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
             )
             pred_u_cutmix = self.stu_model(unlabeled_img_s_cutmix)
             loss_consist_rgbd_cutmix = self.dpa_loss(pred_u_cutmix, ema_pred_u_cutmix)
 
             loss_sup = self.class_criterion(labeled_stu, label)
-            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_rgbd_output)
-            loss_consist_rgb = self.consistency_criterion(unlabeled_stu, tea_rgb_output)
+            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_output)
+            # TODO: add feature similarity loss
+
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
-            total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + loss_consist_rgb) + loss_consist_rgbd_cutmix
+            total_loss = loss_sup + consistency_weight * loss_consist_rgbd + loss_consist_rgbd_cutmix
 
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
@@ -166,7 +168,6 @@ class DepthEnhance_MT_Trainer(Trainer):
 
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
-            phase1_info['unlabeled_rgb_loss'].append(loss_consist_rgb.item())
             phase1_info['unlabeled_rgbd_cutmix_loss'].append(loss_consist_rgbd_cutmix.item())
             phase1_info['consistency_weight'].append(consistency_weight)
             phase1_info['loss'].append(total_loss.item())
@@ -188,8 +189,8 @@ class DepthEnhance_MT_Trainer(Trainer):
 
             for param in self.tea_model.rgb_branch.parameters():
                 param.requires_grad_(False)
-            tea_labeled_output = self.tea_model(labeled_img, labeled_depth)
-            tea_labeled_rgbd_output = tea_labeled_output['rgb_depth']
+            tea_labeled_rgbd_output = self.tea_model(labeled_img, labeled_depth)
+            # tea_labeled_rgbd_output = tea_labeled_output
 
             loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
             

@@ -95,11 +95,11 @@ class DepthEnhance_MT_Trainer(Trainer):
         return self.consistency * sigmoid_rampup(current=global_step, \
                                                     rampup_length=self.consistency_rampup)
     
-    def _update_ema_variable(self, global_step):
+    def _update_ema_variable(self, global_step, model_a: nn.Module, model_b: nn.Module):
         """EMA update: Copy student weights to teacher RGB branch"""
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
         # Only update teacher RGB branch from student (Mean Teacher principle)
-        for tea_param, stu_param in zip(self.tea_model.rgb_branch.parameters(), self.stu_model.parameters()):
+        for tea_param, stu_param in zip(model_a.parameters(), model_b.parameters()):
             tea_param.data.mul_(coeff).add_(stu_param.data, alpha=1 - coeff)
     
     def get_Trainer_ckpt(self) -> dict:
@@ -149,11 +149,11 @@ class DepthEnhance_MT_Trainer(Trainer):
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
             
             # Split into labeled/unlabeled batches
-            labeled_img = img[:self.labeled_bs]
+            # labeled_img = img[:self.labeled_bs]
             unlabeled_img = img[self.labeled_bs:]
-            labeled_depth = depth[:self.labeled_bs]
+            # labeled_depth = depth[:self.labeled_bs]
             unlabeled_depth = depth[self.labeled_bs:]
-            labeled_img_s = img_s[:self.labeled_bs]
+            # labeled_img_s = img_s[:self.labeled_bs]
             unlabeled_img_s = img_s[self.labeled_bs:]
             label = label[:self.labeled_bs]
             
@@ -199,7 +199,8 @@ class DepthEnhance_MT_Trainer(Trainer):
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
             
-            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader))
+            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader), \
+                model_a=self.tea_model.rgb_encoder, model_b=self.stu_model.encoder1)
             
             # Log phase 1 metrics
             phase1_info['labeled_loss'].append(loss_sup.item())
@@ -225,42 +226,31 @@ class DepthEnhance_MT_Trainer(Trainer):
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
 
-            teacher_output = self.tea_model(img, depth, fp=True)
-            tea_rgb_output, tea_rgb_fea = teacher_output['rgb']
-            tea_rgbd_output, tea_rgbd_fea = teacher_output['rgb_depth']
-
-            tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
+            labeled_depth = depth[:self.labeled_bs]
+            labeled_img = img[:self.labeled_bs]
             label = label[:self.labeled_bs]
 
-            # Freeze teacher RGB branch (EMA-updated, no gradients)
+
             for param in self.tea_model.rgb_branch.parameters():
                 param.requires_grad_(False)
-            
-            # # Forward pass: train depth encoder + fusion + decoder
-            # tea_output = self.tea_model(labeled_img, labeled_depth)
-            # tea_labeled_output = tea_output['rgb_depth']
-            
-            # Supervised loss on RGB-D teacher
+            tea_labeled_rgbd_output = self.tea_model(labeled_img, labeled_depth)
+            # tea_labeled_rgbd_output = tea_labeled_output
+
             loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
             
-            fea_sim_loss = feature_similarity_loss(tea_rgb_fea, tea_rgbd_fea)
-            phase2_loss = loss_tea_sup + self.fea_sim_weight * fea_sim_loss
-            phase2_loss.backward()
+            loss_tea_sup.backward()
             tea_param = self.tea_optimizer.param_groups[0]['params']
             torch.nn.utils.clip_grad_norm_(tea_param, max_norm=1.0)
             self.tea_optimizer.step()
-            
-            # Add teacher supervised loss for logging.
-            phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
-            phase2_info['fea_sim_loss'].append(fea_sim_loss.item())
-            
 
+            phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
             for param in self.tea_model.parameters():
                 param.requires_grad_(True)
-        
+
         if self.tea_scheduler is not None:
             self.tea_scheduler.step()
         self._add_info({f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()})
+
 
 
 class StopTrainAtEpoch(HookBase):
