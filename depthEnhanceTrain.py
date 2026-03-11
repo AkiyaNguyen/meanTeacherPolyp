@@ -1,9 +1,8 @@
-
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
 from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
 from torchvision.datasets import ImageFolder
-# import engine
+import copy
 
 from test.eval import evaluate, ImageFolderDataset
 from data.transform import Resize, ToTensor
@@ -12,6 +11,7 @@ import typing
 import argparse
 
 from utils.common import *
+from utils.dpa import dpa
 from data import dataset
 from data.batch_sampler import TwoStreamBatchSampler
 import torch
@@ -19,167 +19,187 @@ import torch.nn.functional as F
 import torch.nn as nn
 import optuna
 
-
 from torch.optim.lr_scheduler import LambdaLR
-
 from utils.ramps import sigmoid_rampup
+
 
 def softmax_mse_loss(input_logits, target_logits):
     num_classes = input_logits.size()[1]
-    if num_classes == 1: ##
+    if num_classes == 1:
         loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
     else:
         loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
     return loss
 
+
+def dice_loss(pred, target, smooth=1):
+    size = pred.size(0)
+    intersection = (pred * target).sum()
+    union = pred.sum() + target.sum()
+    dice_score = (2 * intersection + smooth) / (union + smooth)
+    return 1 - dice_score / size
+
+
+def mask_bce_loss(pred, target, threshold=0.95):
+    pred = pred.reshape(pred.shape[0], -1)
+    target = target.reshape(target.shape[0], -1)
+    mask = ((target > threshold) | (target < 1 - threshold)).float()
+    pred, target = pred * mask, target * mask
+    loss = nn.BCELoss(reduction='mean')
+    return loss(pred, target)
+
+
+def bce_dice_loss(pred, target):
+    bce_loss_value = mask_bce_loss(pred, target)
+    dice_loss_value = dice_loss(pred, target)
+    return bce_loss_value + dice_loss_value
+
+
+def feature_similarity_loss(rgb_feat, rgbd_feat):
+    rgb_feat = F.normalize(rgb_feat, dim=1)
+    rgbd_feat = F.normalize(rgbd_feat, dim=1)
+    sim = F.cosine_similarity(rgb_feat.flatten(2), rgbd_feat.flatten(2), dim=1)
+    return 1 - sim.mean()
+
+
 class DepthEnhance_MT_Trainer(Trainer):
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, tea_optimizer, scheduler, num_epochs, ema_alpha,
-                 consistency_rampup, consistency, tea_scheduler=None, **kwargs) -> None:
-        """
-        Mean Teacher trainer for RGB-D polyp segmentation.
-        tea_scheduler: optional; if given, stepped once per epoch after phase 2.
-        """
+                 consistency_rampup, consistency, fea_sim_weight: float, tea_scheduler=None, **kwargs) -> None:
         super().__init__(num_epochs, **kwargs)
         self.stu_model = stu_model
         self.tea_model = tea_model
         self.train_dataloader = train_dataloader
-        self.stu_optimizer = stu_optimizer      # Student optimizer (RGB only)
-        self.tea_optimizer = tea_optimizer      # Teacher optimizer (depth+fuse+decoder)
+        self.stu_optimizer = stu_optimizer
+        self.tea_optimizer = tea_optimizer
         self.scheduler = scheduler
-        self.tea_scheduler = tea_scheduler      # Optional; stepped once per epoch after phase 2
-        self.ema_alpha = ema_alpha              # EMA decay rate
+        self.tea_scheduler = tea_scheduler
+        self.ema_alpha = ema_alpha
         self.labeled_bs = self.train_dataloader.batch_sampler.primary_batch_size
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
+        self.fea_sim_weight = fea_sim_weight
         self.class_criterion = nn.BCELoss()
         self.consistency_criterion = softmax_mse_loss
-        
+        self.dpa_loss = bce_dice_loss
+
     def _get_current_consistency_weight(self, global_step):
-        return self.consistency * sigmoid_rampup(current=global_step, \
-                                                    rampup_length=self.consistency_rampup)
-    
+        return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)
+
     def _update_ema_variable(self, global_step):
-        """EMA update: Copy student weights to teacher RGB branch"""
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
-        # Only update teacher RGB branch from student (Mean Teacher principle)
         for tea_param, stu_param in zip(self.tea_model.rgb_branch.parameters(), self.stu_model.parameters()):
             tea_param.data.mul_(coeff).add_(stu_param.data, alpha=1 - coeff)
-    
+
+    def get_Trainer_ckpt(self) -> dict:
+        result = dict()
+        result['stu_model'] = self.stu_model.state_dict()
+        result['tea_model'] = self.tea_model.state_dict()
+        result['current_epoch'] = self.current_epoch + 1
+        result['stu_optimizer'] = self.stu_optimizer.state_dict()
+        result['tea_optimizer'] = self.tea_optimizer.state_dict()
+        result['scheduler'] = self.scheduler.state_dict()
+        result['tea_scheduler'] = self.tea_scheduler.state_dict() if self.tea_scheduler is not None else None
+        return result
+
+    def load_Trainer_ckpt(self, state_dict: dict) -> None:
+        self.stu_model.load_state_dict(state_dict['stu_model'])
+        self.tea_model.load_state_dict(state_dict['tea_model'])
+        self.current_epoch = state_dict['current_epoch']
+        self.stu_optimizer.load_state_dict(state_dict['stu_optimizer'])
+        self.tea_optimizer.load_state_dict(state_dict['tea_optimizer'])
+        self.scheduler.load_state_dict(state_dict['scheduler'])
+        if state_dict.get('tea_scheduler') is not None and self.tea_scheduler is not None:
+            self.tea_scheduler.load_state_dict(state_dict['tea_scheduler'])
+
     def _start_train_mode(self) -> None:
-        """Set student to train mode (teacher always eval during distillation)"""
         self.stu_model.train()
-    
+
     def run_step_(self) -> None:
-        """Main training loop with 2 phases per epoch"""
         self.stu_model.train()
-        self.tea_model.eval()  # Teacher in eval mode during distillation (phase 1)
+        self.tea_model.eval()
         device = next(self.stu_model.parameters()).device
-        
-        # Phase 1 logging
-        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [], 
-                      'consistency_weight': [], 'loss': []}
-        phase2_info = {'teacher_labeled_loss': []}
-        
+
+        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [],
+                       'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
+        phase2_info = {'teacher_labeled_loss': [], 'fea_sim_loss': []}
+
         # ========== PHASE 1: Train Student + EMA Update ==========
-        # print("Phase 1: Training Student...")
         for batch_id, data in enumerate(self.train_dataloader):
             self.stu_optimizer.zero_grad()
-            
-            # Data preparation: labeled + unlabeled
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
-            
-            # Split into labeled/unlabeled batches
-            labeled_img = img[:self.labeled_bs]
+
             unlabeled_img = img[self.labeled_bs:]
-            labeled_depth = depth[:self.labeled_bs]
             unlabeled_depth = depth[self.labeled_bs:]
+            unlabeled_img_s = img_s[self.labeled_bs:]
             label = label[:self.labeled_bs]
-            
-            # Student predictions on strongly augmented data
+
             stu_pred = self.stu_model(img_s)
             labeled_stu = stu_pred[:self.labeled_bs]
             unlabeled_stu = stu_pred[self.labeled_bs:]
-            
-            # Teacher predictions (NO_GRAD - frozen during distillation)
+
             with torch.no_grad():
-                # RGB-D teacher prediction (distillation target)
                 tea_output = self.tea_model(unlabeled_img, unlabeled_depth)
-                # RGB-only teacher prediction (baseline distillation target)
-                # tea_rgb_output = self.tea_model(unlabeled_img)['rgb']
                 tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
-            
-            # Compute losses
-            loss_sup = self.class_criterion(labeled_stu, label)  # Supervised loss
-            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_rgbd_output)  # RGB-D consistency
-            loss_consist_rgb = self.consistency_criterion(unlabeled_stu, tea_rgb_output)     # RGB consistency
-            
-            # Ramp-up consistency weight
+
+            unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(
+                unlabeled_depth, unlabeled_img_s, tea_rgbd_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
+            )
+            pred_u_cutmix = self.stu_model(unlabeled_img_s_cutmix)
+            loss_consist_rgbd_cutmix = self.dpa_loss(pred_u_cutmix, ema_pred_u_cutmix)
+
+            loss_sup = self.class_criterion(labeled_stu, label)
+            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_rgbd_output)
+            loss_consist_rgb = self.consistency_criterion(unlabeled_stu, tea_rgb_output)
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
-            
-            # Total student loss
-            total_loss = (loss_sup + 
-                         consistency_weight * loss_consist_rgbd + 
-                         consistency_weight * loss_consist_rgb)
-            
-            # Backward pass + Student update
+            total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + loss_consist_rgb) + loss_consist_rgbd_cutmix
+
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
-            
             self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader))
-            
-            # Log phase 1 metrics
+
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
             phase1_info['unlabeled_rgb_loss'].append(loss_consist_rgb.item())
+            phase1_info['unlabeled_rgbd_cutmix_loss'].append(loss_consist_rgbd_cutmix.item())
             phase1_info['consistency_weight'].append(consistency_weight)
             phase1_info['loss'].append(total_loss.item())
-        
-            # Learning rate scheduling per iteration
             self.scheduler.step()
 
         self._add_info({f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()})
-        
+
         # ========== PHASE 2: Train Teacher Depth/Fusion/Decoder ==========
-        # print("Phase 2: Training Teacher Depth Branch...")
         self.tea_model.train()
-        
         for batch_id, data in enumerate(self.train_dataloader):
             self.tea_optimizer.zero_grad()
-            
-            # Only use labeled data for teacher supervised training
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
-            
-            labeled_img = img[:self.labeled_bs]
-            labeled_depth = depth[:self.labeled_bs]
+
+            teacher_output = self.tea_model(img, depth, fp=True)
+            tea_rgb_output, tea_rgb_fea = teacher_output['rgb']
+            tea_rgbd_output, tea_rgbd_fea = teacher_output['rgb_depth']
+            tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
             label = label[:self.labeled_bs]
-            
-            # Freeze teacher RGB branch (EMA-updated, no gradients)
+
             for param in self.tea_model.rgb_branch.parameters():
                 param.requires_grad_(False)
-            
-            # Forward pass: train depth encoder + fusion + decoder
-            tea_output = self.tea_model(labeled_img, labeled_depth)
-            tea_labeled_output = tea_output['rgb_depth']
-            
-            # Supervised loss on RGB-D teacher
-            loss_tea_sup = self.class_criterion(tea_labeled_output, label)
-            loss_tea_sup.backward()
+
+            loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
+            fea_sim_loss = feature_similarity_loss(tea_rgb_fea, tea_rgbd_fea)
+            phase2_loss = loss_tea_sup + self.fea_sim_weight * fea_sim_loss
+            phase2_loss.backward()
             tea_param = self.tea_optimizer.param_groups[0]['params']
             torch.nn.utils.clip_grad_norm_(tea_param, max_norm=1.0)
             self.tea_optimizer.step()
-            
-            # Add teacher supervised loss for logging.
-            phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
-            
 
+            phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
+            phase2_info['fea_sim_loss'].append(fea_sim_loss.item())
             for param in self.tea_model.parameters():
                 param.requires_grad_(True)
-        
+
         if self.tea_scheduler is not None:
             self.tea_scheduler.step()
         self._add_info({f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()})
@@ -406,6 +426,7 @@ def training(trial):
         ema_alpha=float(cfg.get('Trainer.ema_decay', 0.999)),
         consistency_rampup=float(cfg.get('Trainer.consistency_rampup')),
         consistency=float(cfg.get('Trainer.consistency')),
+        fea_sim_weight=float(cfg.get('Trainer.fea_sim_weight', 0.5)),
         tea_scheduler=tea_depth_branch_scheduler,
     )
      

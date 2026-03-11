@@ -55,9 +55,16 @@ def bce_dice_loss(pred, target):
     dice_loss_value = dice_loss(pred, target)
     return bce_loss_value + dice_loss_value
 
+def feature_similarity_loss(rgb_feat, rgbd_feat):
+    rgb_feat = F.normalize(rgb_feat, dim=1)    # L2 normalize channels
+    rgbd_feat = F.normalize(rgbd_feat, dim=1)
+    sim = F.cosine_similarity(rgb_feat.flatten(2), rgbd_feat.flatten(2), dim=1)
+    return 1 - sim.mean()
+    
+
 class DepthEnhance_MT_Trainer(Trainer):
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, tea_optimizer, scheduler, num_epochs, ema_alpha,
-                 consistency_rampup, consistency, tea_scheduler=None, **kwargs) -> None:
+                 consistency_rampup, consistency, fea_sim_weight: float, tea_scheduler=None, **kwargs) -> None:
         """
         Mean Teacher trainer for RGB-D polyp segmentation.
         tea_scheduler: optional; if given, stepped once per epoch after phase 2.
@@ -74,6 +81,8 @@ class DepthEnhance_MT_Trainer(Trainer):
         self.labeled_bs = self.train_dataloader.batch_sampler.primary_batch_size
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
+        self.fea_sim_weight = fea_sim_weight
+
         self.class_criterion = nn.BCELoss()
         self.consistency_criterion = softmax_mse_loss
         self.dpa_loss = bce_dice_loss
@@ -124,7 +133,7 @@ class DepthEnhance_MT_Trainer(Trainer):
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [], 
                       'consistency_weight': [], \
                         'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
-        phase2_info = {'teacher_labeled_loss': []}
+        phase2_info = {'teacher_labeled_loss': [], 'fea_sim_loss': []}
         
         # ========== PHASE 1: Train Student + EMA Update ==========
         # print("Phase 1: Training Student...")
@@ -211,28 +220,35 @@ class DepthEnhance_MT_Trainer(Trainer):
             # Only use labeled data for teacher supervised training
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
-            
-            labeled_img = img[:self.labeled_bs]
-            labeled_depth = depth[:self.labeled_bs]
+
+            teacher_output = self.tea_model(img, depth, fp=True)
+            tea_rgb_output, tea_rgb_fea = teacher_output['rgb']
+            tea_rgbd_output, tea_rgbd_fea = teacher_output['rgb_depth']
+
+            tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
             label = label[:self.labeled_bs]
-            
+
             # Freeze teacher RGB branch (EMA-updated, no gradients)
             for param in self.tea_model.rgb_branch.parameters():
                 param.requires_grad_(False)
             
-            # Forward pass: train depth encoder + fusion + decoder
-            tea_output = self.tea_model(labeled_img, labeled_depth)
-            tea_labeled_output = tea_output['rgb_depth']
+            # # Forward pass: train depth encoder + fusion + decoder
+            # tea_output = self.tea_model(labeled_img, labeled_depth)
+            # tea_labeled_output = tea_output['rgb_depth']
             
             # Supervised loss on RGB-D teacher
-            loss_tea_sup = self.class_criterion(tea_labeled_output, label)
-            loss_tea_sup.backward()
+            loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
+            
+            fea_sim_loss = feature_similarity_loss(tea_rgb_fea, tea_rgbd_fea)
+            phase2_loss = loss_tea_sup + self.fea_sim_weight * fea_sim_loss
+            phase2_loss.backward()
             tea_param = self.tea_optimizer.param_groups[0]['params']
             torch.nn.utils.clip_grad_norm_(tea_param, max_norm=1.0)
             self.tea_optimizer.step()
             
             # Add teacher supervised loss for logging.
             phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
+            phase2_info['fea_sim_loss'].append(fea_sim_loss.item())
             
 
             for param in self.tea_model.parameters():
@@ -483,6 +499,7 @@ def training():
         ema_alpha=float(cfg.get('Trainer.ema_decay', 0.999)),
         consistency_rampup=float(cfg.get('Trainer.consistency_rampup')),
         consistency=float(cfg.get('Trainer.consistency')),
+        fea_sim_weight=float(cfg.get('Trainer.fea_sim_weight', 0.5)),
         tea_scheduler=tea_depth_branch_scheduler,
     )
 
