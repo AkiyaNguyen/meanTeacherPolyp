@@ -124,7 +124,7 @@ class DepthEnhance_MT_Trainer(Trainer):
 
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [],
                        'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
-        phase2_info = {'teacher_labeled_loss': [], 'fea_sim_loss': []}
+        phase2_info = {'teacher_labeled_loss': []}
 
         # ========== PHASE 1: Train Student + EMA Update ==========
         for batch_id, data in enumerate(self.train_dataloader):
@@ -181,25 +181,24 @@ class DepthEnhance_MT_Trainer(Trainer):
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
 
-            teacher_output = self.tea_model(img, depth, fp=True)
-            tea_rgb_output, tea_rgb_fea = teacher_output['rgb']
-            tea_rgbd_output, tea_rgbd_fea = teacher_output['rgb_depth']
-            tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
+            labeled_depth = depth[:self.labeled_bs]
+            labeled_img = img[:self.labeled_bs]
             label = label[:self.labeled_bs]
+
 
             for param in self.tea_model.rgb_branch.parameters():
                 param.requires_grad_(False)
+            tea_labeled_output = self.tea_model(labeled_img, labeled_depth)
+            tea_labeled_rgbd_output = tea_labeled_output['rgb_depth']
 
             loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
-            fea_sim_loss = feature_similarity_loss(tea_rgb_fea, tea_rgbd_fea)
-            phase2_loss = loss_tea_sup + self.fea_sim_weight * fea_sim_loss
-            phase2_loss.backward()
+            
+            loss_tea_sup.backward()
             tea_param = self.tea_optimizer.param_groups[0]['params']
             torch.nn.utils.clip_grad_norm_(tea_param, max_norm=1.0)
             self.tea_optimizer.step()
 
             phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
-            phase2_info['fea_sim_loss'].append(fea_sim_loss.item())
             for param in self.tea_model.parameters():
                 param.requires_grad_(True)
 
