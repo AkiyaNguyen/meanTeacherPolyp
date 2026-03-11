@@ -374,12 +374,20 @@ class SmartSaveHook(HookBase):
             torch.save(self.ckpt, os.path.join(self.save_dir, f"final_{self.save_name}.pth"))
             print(f"Final model saved at {os.path.join(self.save_dir, f'final_{self.save_name}.pth')}")
 
+            assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model')
+            
             mlflow.pytorch.log_model(
-                pytorch_model=self.trainer.model,  # Model object, KHÔNG phải ckpt dict
-                artifact_path="models",
-                registered_model_name=f"{self.save_name}_final"
-                )
-            print(f"Model logged to MLFlow as {self.save_name}_final")
+                pytorch_model=self.trainer.stu_model,  # Student (primary)
+                artifact_path="models/student_final",
+                registered_model_name=f"{self.save_name}_student_final"
+            )
+            mlflow.pytorch.log_model(
+                pytorch_model=self.trainer.tea_model,  # Teacher (EMA-updated)
+                artifact_path="models/teacher_final", 
+                registered_model_name=f"{self.save_name}_teacher_final"
+            )
+            print(f"Student & Teacher models logged to DagsHub MLflow!")
+
 def training():
     parser = argparse.ArgumentParser(description='Depth Enhanced RGB-D Polyp Segmentation with Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
     parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
