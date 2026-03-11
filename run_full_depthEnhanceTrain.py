@@ -307,6 +307,8 @@ class SmartSaveHook(HookBase):
     def __init__(self, trainer: Trainer, save_dir: str, max_save_epoch_interval: int, save_name: str, criteria: str) -> None:
         super().__init__(trainer)
         self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+
         self.max_save_epoch_interval = max_save_epoch_interval
         self.save_name = save_name
         self.criteria = criteria
@@ -333,8 +335,6 @@ class SmartSaveHook(HookBase):
 
     def after_train(self) -> None:
         if self.ckpt is not None:
-            os.makedirs(self.save_dir, exist_ok=True)
-            
             torch.save(self.ckpt, os.path.join(self.save_dir, f"final_{self.save_name}.pth"))
             print(f"Final model saved at {os.path.join(self.save_dir, f'final_{self.save_name}.pth')}")
 
