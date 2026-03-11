@@ -315,17 +315,21 @@ class SmartSaveHook(HookBase):
         self.has_improved = False
         self.ckpt = None
     def after_train_epoch(self) -> None:
-        criteria_value = self.trainer.info_storage.latest_info()[self.criteria]
+        latest = self.trainer.info_storage.latest_info()
+        self.patience += 1
+
+        if self.criteria not in latest:
+            return
+        criteria_value = latest[self.criteria]
         if self.best_record is None or criteria_value > self.best_record:
             self.best_record = criteria_value
             self.has_improved = True
             self.ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
 
-        self.patience += 1
         if self.patience >= self.max_save_epoch_interval and self.has_improved:
-            self.patience = 0
             torch.save(self.ckpt, os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth"))
             self.has_improved = False
+            self.patience = 0
 
     def after_train(self) -> None:
         if self.ckpt is not None:
