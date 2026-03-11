@@ -290,7 +290,7 @@ class Depth_W_CNNFusion_ResNet34U_f(nn.Module):
         d1 = self.decoder1(torch.cat([d2, f1], dim=1))
         
         out1 = self.outconv(d1)
-        output['rgb_depth'] = (F.sigmoid(out1), d5) if fp else F.sigmoid(out1)
+        output['rgb_depth'] = (F.sigmoid(out1), f5) if fp else F.sigmoid(out1)
         return output
 
 
@@ -342,7 +342,7 @@ class Depth_W_SEFusion_ResNet34U_f(nn.Module):
         d1 = self.decoder1(torch.cat([d2, f1], dim=1))
         
         out1 = self.outconv(d1)
-        output['rgb_depth'] = (F.sigmoid(out1), d5) if fp else F.sigmoid(out1)
+        output['rgb_depth'] = (F.sigmoid(out1), f5) if fp else F.sigmoid(out1)
         return output
 
 

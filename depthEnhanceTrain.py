@@ -56,9 +56,12 @@ def bce_dice_loss(pred, target):
 
 
 def feature_similarity_loss(rgb_feat, rgbd_feat):
+    # Pool to (N, C) so spatial size mismatch (e.g. RGB vs RGB-D branches) is handled
+    rgb_feat = F.adaptive_avg_pool2d(rgb_feat, 1).flatten(1)   # (N, C)
+    rgbd_feat = F.adaptive_avg_pool2d(rgbd_feat, 1).flatten(1)
     rgb_feat = F.normalize(rgb_feat, dim=1)
     rgbd_feat = F.normalize(rgbd_feat, dim=1)
-    sim = F.cosine_similarity(rgb_feat.flatten(2), rgbd_feat.flatten(2), dim=1)
+    sim = F.cosine_similarity(rgb_feat, rgbd_feat, dim=1)
     return 1 - sim.mean()
 
 
