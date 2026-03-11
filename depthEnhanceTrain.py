@@ -88,9 +88,9 @@ class DepthEnhance_MT_Trainer(Trainer):
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)
 
-    def _update_ema_variable(self, global_step):
+    def _update_ema_variable(self, global_step, model_a: nn.Module, model_b: nn.Module):
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
-        for tea_param, stu_param in zip(self.tea_model.rgb_branch.parameters(), self.stu_model.parameters()):
+        for tea_param, stu_param in zip(model_a.parameters(), model_b.parameters()):
             tea_param.data.mul_(coeff).add_(stu_param.data, alpha=1 - coeff)
 
     def get_Trainer_ckpt(self) -> dict:
@@ -164,7 +164,8 @@ class DepthEnhance_MT_Trainer(Trainer):
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
-            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader))
+            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader), \
+                model_a=self.tea_model.rgb_encoder, model_b=self.stu_model.encoder1)
 
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
@@ -187,7 +188,7 @@ class DepthEnhance_MT_Trainer(Trainer):
             label = label[:self.labeled_bs]
 
 
-            for param in self.tea_model.rgb_branch.parameters():
+            for param in self.tea_model.rgb_encoder.parameters():
                 param.requires_grad_(False)
             tea_labeled_rgbd_output = self.tea_model(labeled_img, labeled_depth)
             # tea_labeled_rgbd_output = tea_labeled_output
@@ -231,13 +232,10 @@ class MeanTeacherEvalHook(EvalHook):
         device = next(self.trainer.stu_model.parameters()).device # type: ignore
         metrics = {
             'stu_ACC_overall': [],
-            'tea_rgb_ACC_overall': [],
             'tea_rgbd_ACC_overall': [],
             'stu_Dice': [],
-            'tea_rgb_Dice': [],
             'tea_rgbd_Dice': [],
             'stu_IoU': [],
-            'tea_rgb_IoU': [],
             'tea_rgbd_IoU': [],
         }
         with torch.no_grad():
@@ -249,15 +247,10 @@ class MeanTeacherEvalHook(EvalHook):
                 cur_stu_metrics = evaluate(stu_output, gt)
 
                 tea_output = self.trainer.tea_model(img, depth)
-                tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
-
-                cur_tea_rgb_metrics = evaluate(tea_rgb_output, gt)
+                tea_rgbd_output = tea_output
                 cur_tea_rgbd_metrics = evaluate(tea_rgbd_output, gt)
-
                 for key, value in cur_stu_metrics.items():
                     metrics['stu_' + key].append(value)
-                for key, value in cur_tea_rgb_metrics.items():
-                    metrics['tea_rgb_' + key].append(value)
                 for key, value in cur_tea_rgbd_metrics.items():
                     metrics['tea_rgbd_' + key].append(value)
         
@@ -458,7 +451,7 @@ def training(trial):
     trainer.train()
 
     ## add this for optuna tuning
-    criteria = 'val_tea_rgb_Dice' if val_hook is not None else 'test_tea_rgb_Dice'
+    criteria = 'val_tea_rgbd_Dice' if val_hook is not None else 'test_tea_rgbd_Dice'
     for info in reversed(trainer.info_storage.info_storage):
         if criteria in info:
             return info[criteria]

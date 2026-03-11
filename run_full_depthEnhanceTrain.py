@@ -134,87 +134,60 @@ class DepthEnhance_MT_Trainer(Trainer):
         device = next(self.stu_model.parameters()).device
         
         # Phase 1 logging
-        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [], 
+        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 
                       'consistency_weight': [], \
                         'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
-        phase2_info = {'teacher_labeled_loss': [], 'fea_sim_loss': []}
+        phase2_info = {'teacher_labeled_loss': []}
         
         # ========== PHASE 1: Train Student + EMA Update ==========
-        # print("Phase 1: Training Student...")
         for batch_id, data in enumerate(self.train_dataloader):
             self.stu_optimizer.zero_grad()
-            
-            # Data preparation: labeled + unlabeled
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
             img_s, img, label, depth = img_s.to(device), img.to(device), label.to(device), depth.to(device)
-            
-            # Split into labeled/unlabeled batches
-            # labeled_img = img[:self.labeled_bs]
+
             unlabeled_img = img[self.labeled_bs:]
-            # labeled_depth = depth[:self.labeled_bs]
             unlabeled_depth = depth[self.labeled_bs:]
-            # labeled_img_s = img_s[:self.labeled_bs]
             unlabeled_img_s = img_s[self.labeled_bs:]
+
             label = label[:self.labeled_bs]
-            
-            # Student predictions on strongly augmented data
+
             stu_pred = self.stu_model(img_s)
             labeled_stu = stu_pred[:self.labeled_bs]
             unlabeled_stu = stu_pred[self.labeled_bs:]
-            
 
-            # Teacher predictions (NO_GRAD - frozen during distillation)
             with torch.no_grad():
-                # RGB-D teacher prediction (distillation target)
                 tea_output = self.tea_model(unlabeled_img, unlabeled_depth)
-                # RGB-only teacher prediction (baseline distillation target)
-                # tea_rgb_output = self.tea_model(unlabeled_img)['rgb']
-                tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
-            
-            
+
+
             unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(
-                unlabeled_depth, unlabeled_img_s, tea_rgbd_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
+                unlabeled_depth, unlabeled_img_s, tea_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
             )
             pred_u_cutmix = self.stu_model(unlabeled_img_s_cutmix)
-
             loss_consist_rgbd_cutmix = self.dpa_loss(pred_u_cutmix, ema_pred_u_cutmix)
 
+            loss_sup = self.class_criterion(labeled_stu, label)
+            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_output)
+            # TODO: add feature similarity loss
 
-            # Compute losses
-            loss_sup = self.class_criterion(labeled_stu, label)  # Supervised loss
-            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_rgbd_output)  # RGB-D consistency
-            loss_consist_rgb = self.consistency_criterion(unlabeled_stu, tea_rgb_output)     # RGB consistency
-            
-            # Ramp-up consistency weight
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
-            
-            # Total student loss
-            total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + loss_consist_rgb) +\
-                            loss_consist_rgbd_cutmix
-            
-            # Backward pass + Student update
+            total_loss = loss_sup + consistency_weight * loss_consist_rgbd + loss_consist_rgbd_cutmix
+
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
-            
-            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader), \
-                model_a=self.tea_model.rgb_encoder, model_b=self.stu_model.encoder1)
-            
-            # Log phase 1 metrics
+            self._update_ema_variable(global_step=batch_id + self.current_epoch * len(self.train_dataloader))
+
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
-            phase1_info['unlabeled_rgb_loss'].append(loss_consist_rgb.item())
             phase1_info['unlabeled_rgbd_cutmix_loss'].append(loss_consist_rgbd_cutmix.item())
             phase1_info['consistency_weight'].append(consistency_weight)
             phase1_info['loss'].append(total_loss.item())
-        
-            # Learning rate scheduling per iteration
             self.scheduler.step()
 
         self._add_info({f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()})
-        
+
         # ========== PHASE 2: Train Teacher Depth/Fusion/Decoder ==========
         # print("Phase 2: Training Teacher Depth Branch...")
         self.tea_model.train()
@@ -276,13 +249,10 @@ class MeanTeacherEvalHook(EvalHook):
         device = next(self.trainer.stu_model.parameters()).device # type: ignore
         metrics = {
             'stu_ACC_overall': [],
-            'tea_rgb_ACC_overall': [],
             'tea_rgbd_ACC_overall': [],
             'stu_Dice': [],
-            'tea_rgb_Dice': [],
             'tea_rgbd_Dice': [],
             'stu_IoU': [],
-            'tea_rgb_IoU': [],
             'tea_rgbd_IoU': [],
         }
         with torch.no_grad():
@@ -294,15 +264,12 @@ class MeanTeacherEvalHook(EvalHook):
                 cur_stu_metrics = evaluate(stu_output, gt)
 
                 tea_output = self.trainer.tea_model(img, depth)
-                tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
+                tea_rgbd_output = tea_output
 
-                cur_tea_rgb_metrics = evaluate(tea_rgb_output, gt)
                 cur_tea_rgbd_metrics = evaluate(tea_rgbd_output, gt)
 
                 for key, value in cur_stu_metrics.items():
                     metrics['stu_' + key].append(value)
-                for key, value in cur_tea_rgb_metrics.items():
-                    metrics['tea_rgb_' + key].append(value)
                 for key, value in cur_tea_rgbd_metrics.items():
                     metrics['tea_rgbd_' + key].append(value)
         
