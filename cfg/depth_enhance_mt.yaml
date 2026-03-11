@@ -48,6 +48,11 @@ Hook:
     save_dir: save_dir/
     save_every_epoch: 5
     save_name: depth_enhance_mt
+  SmartSaveHook:
+    save_dir: save_dir/
+    max_save_epoch_interval: 50
+    save_name: demt
+    criteria: test_stu_Dice
   MeanTeacherEvalHook:
     eval_every_epoch: 2
   MLFlowLoggerHook:

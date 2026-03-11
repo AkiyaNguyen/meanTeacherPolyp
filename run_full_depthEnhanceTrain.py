@@ -3,6 +3,8 @@ from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
 from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
 from torchvision.datasets import ImageFolder
+import copy
+
 # import engine
 
 from test.eval import evaluate, ImageFolderDataset
@@ -12,6 +14,7 @@ import typing
 import argparse
 
 from utils.common import *
+from utils.dpa import dpa
 from data import dataset
 from data.batch_sampler import TwoStreamBatchSampler
 import torch
@@ -31,6 +34,26 @@ def softmax_mse_loss(input_logits, target_logits):
     else:
         loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
     return loss
+
+def dice_loss(pred, target, smooth=1):
+    size = pred.size(0)
+    intersection = (pred * target).sum()
+    union = pred.sum() + target.sum()
+    dice_score =  (2 * intersection + smooth) / (union + smooth)
+    return 1 - dice_score / size
+
+def mask_bce_loss(pred, target, threshold=0.95):
+    pred = pred.reshape(pred.shape[0], -1)
+    target = target.reshape(target.shape[0], -1)
+    mask = ((target > threshold) | (target < 1 - threshold)).float()
+    pred, target = pred * mask, target * mask
+    loss = nn.BCELoss(reduction='mean')
+    return loss(pred, target)
+
+def bce_dice_loss(pred, target):
+    bce_loss_value = mask_bce_loss(pred, target)
+    dice_loss_value = dice_loss(pred, target)
+    return bce_loss_value + dice_loss_value
 
 class DepthEnhance_MT_Trainer(Trainer):
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, tea_optimizer, scheduler, num_epochs, ema_alpha,
@@ -53,6 +76,7 @@ class DepthEnhance_MT_Trainer(Trainer):
         self.consistency = consistency
         self.class_criterion = nn.BCELoss()
         self.consistency_criterion = softmax_mse_loss
+        self.dpa_loss = bce_dice_loss
         
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, \
@@ -65,6 +89,27 @@ class DepthEnhance_MT_Trainer(Trainer):
         for tea_param, stu_param in zip(self.tea_model.rgb_branch.parameters(), self.stu_model.parameters()):
             tea_param.data.mul_(coeff).add_(stu_param.data, alpha=1 - coeff)
     
+    def get_Trainer_ckpt(self) -> dict:
+        result = dict()
+        result['stu_model'] = self.stu_model.state_dict()
+        result['tea_model'] = self.tea_model.state_dict()
+        result['current_epoch'] = self.current_epoch + 1 ## next epoch will be trained
+        result['stu_optimizer'] = self.stu_optimizer.state_dict()
+        result['tea_optimizer'] = self.tea_optimizer.state_dict()
+        result['scheduler'] = self.scheduler.state_dict()
+        result['tea_scheduler'] = self.tea_scheduler.state_dict() if self.tea_scheduler is not None else None
+        return result
+
+    def load_Trainer_ckpt(self, state_dict: dict) -> None:
+        self.stu_model.load_state_dict(state_dict['stu_model'])
+        self.tea_model.load_state_dict(state_dict['tea_model'])
+        self.current_epoch = state_dict['current_epoch'] ## start from the next epoch
+        self.stu_optimizer.load_state_dict(state_dict['stu_optimizer'])
+        self.tea_optimizer.load_state_dict(state_dict['tea_optimizer'])
+        self.scheduler.load_state_dict(state_dict['scheduler'])
+        if state_dict['tea_scheduler'] is not None:
+            self.tea_scheduler.load_state_dict(state_dict['tea_scheduler'])
+
     def _start_train_mode(self) -> None:
         """Set student to train mode (teacher always eval during distillation)"""
         self.stu_model.train()
@@ -77,7 +122,8 @@ class DepthEnhance_MT_Trainer(Trainer):
         
         # Phase 1 logging
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [], 'unlabeled_rgb_loss': [], 
-                      'consistency_weight': [], 'loss': []}
+                      'consistency_weight': [], \
+                        'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
         phase2_info = {'teacher_labeled_loss': []}
         
         # ========== PHASE 1: Train Student + EMA Update ==========
@@ -94,6 +140,8 @@ class DepthEnhance_MT_Trainer(Trainer):
             unlabeled_img = img[self.labeled_bs:]
             labeled_depth = depth[:self.labeled_bs]
             unlabeled_depth = depth[self.labeled_bs:]
+            labeled_img_s = img_s[:self.labeled_bs]
+            unlabeled_img_s = img_s[self.labeled_bs:]
             label = label[:self.labeled_bs]
             
             # Student predictions on strongly augmented data
@@ -101,6 +149,7 @@ class DepthEnhance_MT_Trainer(Trainer):
             labeled_stu = stu_pred[:self.labeled_bs]
             unlabeled_stu = stu_pred[self.labeled_bs:]
             
+
             # Teacher predictions (NO_GRAD - frozen during distillation)
             with torch.no_grad():
                 # RGB-D teacher prediction (distillation target)
@@ -109,6 +158,15 @@ class DepthEnhance_MT_Trainer(Trainer):
                 # tea_rgb_output = self.tea_model(unlabeled_img)['rgb']
                 tea_rgb_output, tea_rgbd_output = tea_output['rgb'], tea_output['rgb_depth']
             
+            
+            unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(
+                unlabeled_depth, unlabeled_img_s, tea_rgbd_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
+            )
+            pred_u_cutmix = self.stu_model(unlabeled_img_s_cutmix)
+
+            loss_consist_rgbd_cutmix = self.dpa_loss(pred_u_cutmix, ema_pred_u_cutmix)
+
+
             # Compute losses
             loss_sup = self.class_criterion(labeled_stu, label)  # Supervised loss
             loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_rgbd_output)  # RGB-D consistency
@@ -120,9 +178,8 @@ class DepthEnhance_MT_Trainer(Trainer):
             )
             
             # Total student loss
-            total_loss = (loss_sup + 
-                         consistency_weight * loss_consist_rgbd + 
-                         consistency_weight * loss_consist_rgb)
+            total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + loss_consist_rgb) +\
+                            loss_consist_rgbd_cutmix
             
             # Backward pass + Student update
             total_loss.backward()
@@ -135,6 +192,7 @@ class DepthEnhance_MT_Trainer(Trainer):
             phase1_info['labeled_loss'].append(loss_sup.item())
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
             phase1_info['unlabeled_rgb_loss'].append(loss_consist_rgb.item())
+            phase1_info['unlabeled_rgbd_cutmix_loss'].append(loss_consist_rgbd_cutmix.item())
             phase1_info['consistency_weight'].append(consistency_weight)
             phase1_info['loss'].append(total_loss.item())
         
@@ -267,10 +325,39 @@ class FrequentSaveModel(HookBase):
             print(f"Student saved at {stu_path}")
             print(f"Teacher saved at {tea_path}")
 
+class SmartSaveHook(HookBase):
+    def __init__(self, trainer: Trainer, save_dir: str, max_save_epoch_interval: int, save_name: str, criteria: str) -> None:
+        super().__init__(trainer)
+        self.save_dir = save_dir
+        self.max_save_epoch_interval = max_save_epoch_interval
+        self.save_name = save_name
+        self.criteria = criteria
+        self.patience = 0
+        self.best_record = None
+        self.has_improved = False
+        self.ckpt = None
+    def after_train_epoch(self) -> None:
+        criteria_value = self.trainer.info_storage.latest_info()[self.criteria]
+        if self.best_record is None or criteria_value > self.best_record:
+            self.best_record = criteria_value
+            self.has_improved = True
+            self.ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
+
+        self.patience += 1
+        if self.patience >= self.max_save_epoch_interval and self.has_improved:
+            self.patience = 0
+            torch.save(self.ckpt, os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth"))
+            self.has_improved = False
+
+    def after_train(self) -> None:
+        if self.ckpt is not None:
+            torch.save(self.ckpt, os.path.join(self.save_dir, f"final_{self.save_name}.pth"))
+            print(f"Final model saved at {os.path.join(self.save_dir, f'final_{self.save_name}.pth')}")
 
 def training():
     parser = argparse.ArgumentParser(description='Depth Enhanced RGB-D Polyp Segmentation with Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
     parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
+    parser.add_argument('--resume_train', type=str, default=None, help='Path to resume training')
     args, unknown = parser.parse_known_args()
     # unknown contains key=value overrides for OmegaConf (e.g. data.root=..., Trainer.consistency_rampup=200.0)
     cfg = Config(config_file=args.config, cli_overrides=unknown)
@@ -398,7 +485,14 @@ def training():
         consistency=float(cfg.get('Trainer.consistency')),
         tea_scheduler=tea_depth_branch_scheduler,
     )
-     
+
+    if args.resume_train is not None:
+        trainer.load_Trainer_ckpt(torch.load(args.resume_train, map_location=device))
+        print(f"Training resumed from {args.resume_train} successfully from epoch {trainer.current_epoch + 1}")
+    else:
+        print(f"Training started from scratch")
+
+
     hook_builder = HookBuilder(cfg, trainer)
     if val_dataloader is not None:
         val_hook = hook_builder(MeanTeacherEvalHook, eval_data_loader=val_dataloader, \
@@ -408,9 +502,13 @@ def training():
     test_hook = hook_builder(MeanTeacherEvalHook, eval_data_loader=test_dataloader, \
                  eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
         
-    hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), \
-                save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
-            save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
+    # hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'), \
+    #             save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')), \
+    #         save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
+    hook_builder(SmartSaveHook, save_dir=cfg.get('Hook.SmartSaveHook.save_dir'), \
+                max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval')), \
+                save_name=cfg.get('Hook.SmartSaveHook.save_name'), \
+                criteria=cfg.get('Hook.SmartSaveHook.criteria'))
     hook_builder(LoggerHook, logger_file='logs/simple.json')
     hook_builder(MLFlowLoggerHook, dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')), \
                 dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')), \
