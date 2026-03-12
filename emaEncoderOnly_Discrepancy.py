@@ -133,7 +133,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
                        'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
-        phase2_info = {'teacher_labeled_loss': [], 'fea_discrepancy_loss': []}
+        phase2_info = {'teacher_labeled_loss': [], 'fea_discrepancy_loss': [], 'loss': []}
 
         # ========== PHASE 1: Train Student + EMA (encoder only) ==========
         for batch_id, data in enumerate(self.train_dataloader):
@@ -214,6 +214,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
             phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
             phase2_info['fea_discrepancy_loss'].append(discrepancy_loss.item())
+            phase2_info['loss'].append(phase2_loss.item())
             for param in self.tea_model.parameters():
                 param.requires_grad_(True)
 
