@@ -346,6 +346,61 @@ class Depth_W_SEFusion_ResNet34U_f(nn.Module):
         return output
 
 
+class DepthFusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
+    def __init__(self, num_classes, dropout=0.1):
+        super().__init__()
+        self.rgb_encoder = encoder(num_classes=None)
+
+        self.depth_encoder = encoder(num_classes=None)
+        
+        # Fusion blocks
+        self.fusion_block5 = SEFusionBlock(512, 512, 512)
+        self.fusion_block4 = SEFusionBlock(256, 256, 256)
+        self.fusion_block3 = SEFusionBlock(128, 128, 128)
+        self.fusion_block2 = SEFusionBlock(64, 64, 64)
+        self.fusion_block1 = SEFusionBlock(64, 64, 64)
+        
+        self.decoder5 = DecoderBlock(512, 512)
+        self.decoder4 = DecoderBlock(512 + 256, 256)
+        self.decoder3 = DecoderBlock(256 + 128, 128)
+        self.decoder2 = DecoderBlock(128 + 64, 64)
+        self.decoder1 = DecoderBlock(64 + 64, 64)
+        
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+    
+    def forward(self, x, depth, fp=False):
+
+        # RGB-D fusion
+        e1, e2, e3, e4, e5 = self.rgb_encoder(x)
+        e1_d, e2_d, e3_d, e4_d, e5_d = self.depth_encoder(depth)
+        
+        f5 = self.fusion_block5(e5, e5_d)
+        f4 = self.fusion_block4(e4, e4_d)
+        f3 = self.fusion_block3(e3, e3_d)
+        f2 = self.fusion_block2(e2, e2_d)
+        f1 = self.fusion_block1(e1, e1_d)
+        
+        # Decoder
+        d5 = self.decoder5(f5)
+        d4 = self.decoder4(torch.cat([d5, f4], dim=1))
+        d3 = self.decoder3(torch.cat([d4, f3], dim=1))
+        d2 = self.decoder2(torch.cat([d3, f2], dim=1))
+        d1 = self.decoder1(torch.cat([d2, f1], dim=1))
+        
+        out1 = self.outconv(d1)
+        final_output = F.sigmoid(out1)
+        if fp:
+            return final_output, f5
+        else:
+            return final_output
+
+
+
+
 
 if __name__ == "__main__":
     rgb = torch.randn(1, 3, 320, 320)

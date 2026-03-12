@@ -5,7 +5,7 @@ model:
   stu_model:
     name: ResNet34U_f
   tea_model:
-    name: Depth_W_SEFusion_ResNet34U_f
+    name: DepthEnhance_ResNet34U_f_EMAEncoderOnly
   num_channels_output: 1
 data:
   root: ../polypdepth_dataset/
@@ -48,11 +48,11 @@ Hook:
   FrequentSaveModel:
     save_dir: save_dir/
     save_every_epoch: 5
-    save_name: depth_enhance_mt
+    save_name: ema_encoder_only
   SmartSaveHook:
     save_dir: save_dir/
     max_save_epoch_interval: 50
-    save_name: demt
+    save_name: ema_encoder_only
     criteria: test_stu_Dice
   MeanTeacherEvalHook:
     eval_every_epoch: 2
@@ -60,7 +60,7 @@ Hook:
     dagshub_token: 
     dagshub_repo_owner: 'AkiyaNguyen'
     dagshub_repo_name: 'polyp_segmentation'
-    experiment_name: 'depth_enhance_mt'
+    experiment_name: 'ema_encoder_only'
     dir_save_plot: 'plots'
     logging_fields:
     - '*loss*'
@@ -69,7 +69,7 @@ Hook:
     - '*IoU*'
     - '*ACC_overall*'
   StopTrainAtEpoch:
-    stop_at_epoch: 50
+    stop_at_epoch: 1000
 
 score_criteria: test_stu_Dice
 
