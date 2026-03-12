@@ -76,10 +76,16 @@ Hook:
 score_criteria: test_stu_Dice
 
 hyperparameter_sweeping:
-  Trainer.fea_sim_weight:
+  Trainer.fea_discrepancy_weight:
     method: suggest_float
     params:
-      name: fea_sim_weight
-      low: 0.0
-      high: 0.5
+      name: fea_discrepancy_weight
+      low: 0.05
+      high: 0.2
+  Trainer.fea_discrepancy_rampup:
+    method: suggest_float
+    params:
+      name: fea_discrepancy_rampup
+      low: 1500.0
+      high: 5000.0
     
