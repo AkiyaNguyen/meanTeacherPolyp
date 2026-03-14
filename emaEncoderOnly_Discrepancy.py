@@ -300,6 +300,57 @@ class FrequentSaveModel(HookBase):
             print(f"Teacher saved at {tea_path}")
 
 
+
+class SmartSaveHook(HookBase):
+    def __init__(self, trainer: Trainer, save_dir: str, max_save_epoch_interval: int, save_name: str, criteria: str) -> None:
+        super().__init__(trainer)
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+        self.max_save_epoch_interval = max_save_epoch_interval
+        self.save_name = save_name
+        self.criteria = criteria
+        self.patience = 0
+        self.best_record = None
+        self.has_improved = False
+        self.ckpt = None
+    def after_train_epoch(self) -> None:
+        latest = self.trainer.info_storage.latest_info()
+        self.patience += 1
+
+        if self.criteria not in latest:
+            return
+        criteria_value = latest[self.criteria]
+        if self.best_record is None or criteria_value > self.best_record:
+            self.best_record = criteria_value
+            self.has_improved = True
+            self.ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
+
+        if self.patience >= self.max_save_epoch_interval and self.has_improved:
+            torch.save(self.ckpt, os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth"))
+            self.has_improved = False
+            self.patience = 0
+
+    def after_train(self) -> None:
+        if self.ckpt is not None:
+            torch.save(self.ckpt, os.path.join(self.save_dir, f"final_{self.save_name}.pth"))
+            print(f"Final model saved at {os.path.join(self.save_dir, f'final_{self.save_name}.pth')}")
+
+            assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model')
+            
+            mlflow.pytorch.log_model(
+                pytorch_model=self.trainer.stu_model,  # Student (primary)
+                artifact_path="models/student_final",
+                registered_model_name=f"{self.save_name}_student_final"
+            )
+            mlflow.pytorch.log_model(
+                pytorch_model=self.trainer.tea_model,  # Teacher (EMA-updated)
+                artifact_path="models/teacher_final", 
+                registered_model_name=f"{self.save_name}_teacher_final"
+            )
+            print(f"Student & Teacher models logged to DagsHub MLflow!")
+            
+            
+
 def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     if trial is not None:
         sweep_config = cfg.get('hyperparameter_sweeping', {})
@@ -422,8 +473,13 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     if val_dataloader is not None:
         hook_builder(MeanTeacherEvalHook_EMAEncoderOnly, eval_data_loader=val_dataloader,
                      eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='val_')
-    hook_builder(MeanTeacherEvalHook_EMAEncoderOnly, eval_data_loader=test_dataloader,
-                 eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
+    # hook_builder(MeanTeacherEvalHook_EMAEncoderOnly, eval_data_loader=test_dataloader,
+    #              eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
+    hook_builder(SmartSaveHook, save_dir=cfg.get('Hook.SmartSaveHook.save_dir'), \
+                max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval')), \
+                save_name=cfg.get('Hook.SmartSaveHook.save_name'), \
+                criteria=cfg.get('Hook.SmartSaveHook.criteria'))
+    
     hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'),
                  save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')),
                  save_name=cfg.get('Hook.FrequentSaveModel.save_name'))

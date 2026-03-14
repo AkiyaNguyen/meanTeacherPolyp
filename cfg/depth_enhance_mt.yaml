@@ -45,10 +45,10 @@ Trainer:
   fea_sim_weight: 0.5
   # weight-decay: 0.0001
 Hook:
-  FrequentSaveModel:
-    save_dir: save_dir/
-    save_every_epoch: 5
-    save_name: depth_enhance_mt
+  # FrequentSaveModel:
+  #   save_dir: save_dir/
+  #   save_every_epoch: 5
+  #   save_name: depth_enhance_mt
   SmartSaveHook:
     save_dir: save_dir/
     max_save_epoch_interval: 50
@@ -80,4 +80,11 @@ hyperparameter_sweeping:
       name: fea_sim_weight
       low: 0.0
       high: 0.5
+  
+  optimizer.lr:
+    method: suggest_flaot
+    params:
+      name: lr
+      low: 0.001
+      hight: 0.005
     
