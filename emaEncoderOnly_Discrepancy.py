@@ -12,56 +12,16 @@ import argparse
 
 from utils.common import *
 from utils.dpa import dpa
+from utils.loss import SoftmaxMSELoss, BCEDiceLoss, FeatureSimilarityLoss, StructureLoss
 from data import dataset
 from data.batch_sampler import TwoStreamBatchSampler
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import optuna
-
+import mlflow.pytorch
 from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
-
-
-def softmax_mse_loss(input_logits, target_logits):
-    num_classes = input_logits.size()[1]
-    if num_classes == 1:
-        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    else:
-        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    return loss
-
-
-def dice_loss(pred, target, smooth=1):
-    size = pred.size(0)
-    intersection = (pred * target).sum()
-    union = pred.sum() + target.sum()
-    dice_score = (2 * intersection + smooth) / (union + smooth)
-    return 1 - dice_score / size
-
-
-def mask_bce_loss(pred, target, threshold=0.95):
-    pred = pred.reshape(pred.shape[0], -1)
-    target = target.reshape(target.shape[0], -1)
-    mask = ((target > threshold) | (target < 1 - threshold)).float()
-    pred, target = pred * mask, target * mask
-    loss = nn.BCELoss(reduction='mean')
-    return loss(pred, target)
-
-
-def bce_dice_loss(pred, target):
-    bce_loss_value = mask_bce_loss(pred, target)
-    dice_loss_value = dice_loss(pred, target)
-    return bce_loss_value + dice_loss_value
-
-
-def feature_similarity_loss(feat1, feat2):
-    fea1 = F.adaptive_avg_pool2d(feat1, 1).flatten(1)
-    fea2 = F.adaptive_avg_pool2d(feat2, 1).flatten(1)
-    fea1 = F.normalize(fea1, dim=1)
-    fea2 = F.normalize(fea2, dim=1)
-    sim = F.cosine_similarity(fea1, fea2, dim=1)
-    return (1 + sim).mean()
 
 
 class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
@@ -88,8 +48,9 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.fea_discrepancy_rampup = fea_discrepancy_rampup
 
         self.class_criterion = nn.BCELoss()
-        self.consistency_criterion = softmax_mse_loss
-        self.dpa_loss = bce_dice_loss
+        self.consistency_criterion = SoftmaxMSELoss()
+        self.dpa_loss = BCEDiceLoss()
+        self.feature_similarity_loss = FeatureSimilarityLoss()
 
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)
@@ -201,7 +162,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
 
             rgb_fea, depth_fea = feature_dict['rgb_encode'], feature_dict['depth_encode']
-            discrepancy_loss = feature_similarity_loss(rgb_fea, depth_fea)
+            discrepancy_loss = self.feature_similarity_loss(rgb_fea, depth_fea)
             discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
 
             loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)

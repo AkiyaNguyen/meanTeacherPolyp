@@ -16,7 +16,8 @@ def blur(img, p=0.5):
 
 # kvasir_SEG/ CVC-ClinicDB /kvasir_SEG + CVC-ClinicDB
 class kvasir_SEG(Dataset):
-    def __init__(self, root, data2_dir, mode='train', transform=None, require_depth=True, list_name: List[str] | None = None):
+    def __init__(self, root, data2_dir, mode='train', transform=None, require_depth=True, 
+    list_name: List[str] | None = None, image_dirname: str = 'images', mask_dirname: str = 'masks', depth_dirname: str | None = 'depth-v1'):
 
         super(kvasir_SEG, self).__init__()
         self.data_path = os.path.join(root, data2_dir)
@@ -27,19 +28,20 @@ class kvasir_SEG(Dataset):
         self.gt_list = []
         self.mode = mode
 
-        self.images_list = os.listdir(os.path.join(self.data_path, 'images')) if list_name is None \
+        self.images_list = os.listdir(os.path.join(self.data_path, image_dirname)) if list_name is None \
             else list_name
         self.images_list = sorted(self.images_list)
 
         for img_id in self.images_list:
             self.id_list.append(img_id.split('.')[0])
-            self.img_list.append(os.path.join(self.data_path, 'images', img_id))  # Image paths
-            self.gt_list.append(os.path.join(self.data_path, 'masks', img_id))  # Mask paths
+            self.img_list.append(os.path.join(self.data_path, image_dirname, img_id))  # Image paths
+            self.gt_list.append(os.path.join(self.data_path, mask_dirname, img_id))  # Mask paths
 
         if require_depth:
+            assert depth_dirname is not None, "depth_dirname is required if require_depth is True"
             self.depth_list = []
             for img_id in self.images_list:
-                self.depth_list.append(os.path.join(self.data_path, 'depth-v1', img_id))
+                self.depth_list.append(os.path.join(self.data_path, depth_dirname, img_id))
 
 
         if transform is None:

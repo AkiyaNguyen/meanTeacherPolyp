@@ -1,6 +1,7 @@
 """
 Fully supervised training for ResNet34U_f with only 10% labeled images.
-Same data split as Mean Teacher (first 10% as labeled); no teacher, no consistency loss.
+Same data split as Mean Teacher (first N% as labeled); no teacher, no consistency loss.
+Style aligned with emaEncoderOnlyTrain.py (training(cfg, trial), Optuna, score_criteria).
 """
 
 from engine.Config import Config, HookBuilder
@@ -11,26 +12,26 @@ from data.transform import Resize, ToTensor
 from torchvision import transforms
 import typing
 import argparse
+import copy
 from torch.utils.data import Subset
-
+from utils import loss
 from utils.common import *
 from data import dataset
-from data.batch_sampler import TwoStreamBatchSampler
 import torch
-import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
+import optuna
 
 
 class SupervisedTrainer(Trainer):
     """Single-model fully supervised trainer (no teacher, no consistency)."""
 
-    def __init__(self, model, train_dataloader, optimizer, scheduler, num_epochs, **kwargs) -> None:
+    def __init__(self, model, train_dataloader, optimizer, scheduler, num_epochs, class_criterion, **kwargs) -> None:
         super().__init__(num_epochs, **kwargs)
         self.model = model
         self.train_dataloader = train_dataloader
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.class_criterion = nn.BCELoss()
+        self.class_criterion = class_criterion
 
     def _start_train_mode(self) -> None:
         self.model.train()
@@ -42,7 +43,6 @@ class SupervisedTrainer(Trainer):
 
         for batch_id, data in enumerate(self.train_dataloader):
             self.optimizer.zero_grad()
-
             img_s = data['image_s'].to(device)
             label = data['label'].to(device)
 
@@ -57,6 +57,10 @@ class SupervisedTrainer(Trainer):
             self.scheduler.step()
 
         self._add_info({k: np.mean(v) for k, v in step_info.items()})
+
+    def get_Trainer_ckpt(self) -> dict:
+        """Checkpoint for SmartSaveHook: single model state."""
+        return {'model': self.model.state_dict()}
 
 
 class SupervisedEvalHook(EvalHook):
@@ -91,32 +95,62 @@ class SupervisedEvalHook(EvalHook):
             self.trainer._add_info(result)
 
 
-class FrequentSaveModelSingle(HookBase):
-    """Save a single model checkpoint every N epochs."""
-
-    def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
+class StopTrainAtEpoch(HookBase):
+    def __init__(self, trainer: Trainer, stop_at_epoch: int) -> None:
         super().__init__(trainer)
-        self.save_dir = save_dir
-        self.save_every_epoch = save_every_epoch
-        self.save_name = save_name
-        os.makedirs(self.save_dir, exist_ok=True)
-        assert self.save_dir is not None and self.save_every_epoch >= 1 and self.save_name is not None, \
-            "save_dir and save_every_epoch must be provided"
+        self.stop_at_epoch = stop_at_epoch
 
     def after_train_epoch(self) -> None:
-        if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
-            epoch = self.trainer.current_epoch + 1
-            assert hasattr(self.trainer, 'model'), "trainer must have model attribute"
-            path = os.path.join(self.save_dir, f"{self.save_name}_epoch{epoch}.pth")
-            torch.save(self.trainer.model.state_dict(), path)
+        if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
+            self.trainer.stop_training()
+            print(f"Training stopped at epoch {self.stop_at_epoch}")
+
+
+class SmartSaveHook(HookBase):
+    """Save best checkpoint by criteria (single model); periodic and final save."""
+
+    def __init__(self, trainer: Trainer, save_dir: str, max_save_epoch_interval: int, save_name: str, criteria: str) -> None:
+        super().__init__(trainer)
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+        self.max_save_epoch_interval = max_save_epoch_interval
+        self.save_name = save_name
+        self.criteria = criteria
+        self.patience = 0
+        self.best_record = None
+        self.has_improved = False
+        self.ckpt = None
+
+    def after_train_epoch(self) -> None:
+        latest = self.trainer.info_storage.latest_info()
+        self.patience += 1
+        if self.criteria not in latest:
+            return
+        criteria_value = latest[self.criteria]
+        if self.best_record is None or criteria_value > self.best_record:
+            self.best_record = criteria_value
+            self.has_improved = True
+            self.ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
+        if self.patience >= self.max_save_epoch_interval and self.has_improved:
+            path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth")
+            torch.save(self.ckpt, path)
             print(f"Model saved at {path}")
+            self.has_improved = False
+            self.patience = 0
+
+    def after_train(self) -> None:
+        if self.ckpt is not None:
+            path = os.path.join(self.save_dir, f"final_{self.save_name}.pth")
+            torch.save(self.ckpt, path)
+            print(f"Final model saved at {path}")
 
 
-def training():
-    parser = argparse.ArgumentParser(description='Fully supervised ResNet34U_f with 10%% labeled (same style as run_full_depthEnhanceTrain).')
-    parser.add_argument('--config', type=str, default='cfg/supervised_10pct.yaml', help='Path to YAML config')
-    args, unknown = parser.parse_known_args()
-    cfg = Config(config_file=args.config, cli_overrides=unknown)
+def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
+    if trial is not None:
+        sweep_config = cfg.get('hyperparameter_sweeping', {})
+        for key, settings in sweep_config.items():
+            suggested_value = getattr(trial, settings['method'])(**settings['params'])
+            cfg.set(key, suggested_value)
 
     print(cfg.all_config())
     device = get_proper_device(cfg.get('device'))
@@ -182,7 +216,8 @@ def training():
         train_dataset_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'))
         val_data = ImageFolderDataset(
             dataset_root=train_dataset_root,
-            image_dirname='images', mask_dirname='masks',
+            image_dirname=cfg.get('data.image_dirname', 'images'),
+            mask_dirname=cfg.get('data.mask_dirname', 'masks'),
             transform=val_test_transform, list_name=val_files
         )
         val_dataloader = torch.utils.data.DataLoader(
@@ -226,9 +261,9 @@ def training():
         lambda e: max(0.0, 1.0 - pow(min(e, total_iter) / total_iter, scheduler_power))
     )
 
-    trainer = SupervisedTrainer(
-        model, train_dataloader, optimizer, scheduler, nEpoch
-    )
+    class_criterion = getattr(loss, cfg.get('Trainer.class_criterion', 'StructureLoss'))()
+
+    trainer = SupervisedTrainer(model, train_dataloader, optimizer, scheduler, nEpoch, class_criterion)
 
     hook_builder = HookBuilder(cfg, trainer)
     if val_dataloader is not None:
@@ -236,9 +271,11 @@ def training():
                      eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)), prefix='val_')
     hook_builder(SupervisedEvalHook, eval_data_loader=test_dataloader,
                  eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)), prefix='test_')
-    hook_builder(FrequentSaveModelSingle, save_dir=cfg.get('Hook.FrequentSaveModelSingle.save_dir', 'save_dir/'),
-                 save_every_epoch=int(cfg.get('Hook.FrequentSaveModelSingle.save_every_epoch', 5)),
-                 save_name=cfg.get('Hook.FrequentSaveModelSingle.save_name', 'supervised_10pct'))
+    hook_builder(SmartSaveHook,
+                 save_dir=cfg.get('Hook.SmartSaveHook.save_dir', 'save_dir/'),
+                 max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval', 50)),
+                 save_name=cfg.get('Hook.SmartSaveHook.save_name', 'supervised_10pct'),
+                 criteria=cfg.get('Hook.SmartSaveHook.criteria', 'test_Dice'))
     hook_builder(LoggerHook, logger_file=cfg.get('Hook.LoggerHook.logger_file', 'logs/supervised.json'))
     hook_builder(MLFlowLoggerHook,
                  dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner', '')),
@@ -246,10 +283,40 @@ def training():
                  experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name', 'supervised_10pct'),
                  dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot', 'plots'),
                  logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields', ['*loss*', '*Dice*', '*IoU*', '*ACC*'])))
-    
+    if cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch', None) is not None:
+        hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+
     trainer.train()
+
+    criteria = cfg.get('score_criteria', 'test_Dice')
+    for info in reversed(trainer.info_storage.info_storage):
+        if criteria in info:
+            return info[criteria]
+    raise ValueError(f"Criteria {criteria} does not exist in info_storage")
 
 
 if __name__ == '__main__':
-    training()
+    parser = argparse.ArgumentParser(description='Fully supervised ResNet34U_f with 10% labeled (same style as emaEncoderOnlyTrain).')
+    parser.add_argument('--optuna_trial_times', type=int, default=0, help='Optuna trials; 0 = no Optuna.')
+    parser.add_argument('--config', type=str, default='cfg/supervised_10pct.yaml', help='Path to YAML config')
+    args, unknown = parser.parse_known_args()
+    cfg = Config(config_file=args.config, cli_overrides=unknown)
+
+    if args.optuna_trial_times == 0:
+        score = training(cfg)
+        print(f"Score: {score}")
+    else:
+        def objective(trial):
+            trial_cfg = copy.deepcopy(cfg)
+            return training(trial_cfg, trial)
+
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=args.optuna_trial_times)
+        print("Best trial:")
+        trial = study.best_trial
+        print(f"  Value: {trial.value}")
+        print("  Params:")
+        for key, value in trial.params.items():
+            print(f"    {key}: {value}")
+
     print("Training completed!")

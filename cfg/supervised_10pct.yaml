@@ -11,6 +11,9 @@ data:
   root: ../polypdepth_dataset/
   dataset: kvasir_SEG
   data2_dir: TrainDataset
+  image_dirname: images
+  mask_dirname: masks
+  depth_dirname: depth-v1
   require_depth: false   # no depth needed for RGB-only model
   label_mode: percentage
   labeled_perc: 10
@@ -27,10 +30,13 @@ data:
     mask_dirname: masks
     batch_size: 1
 
+Trainer:
+  class_criterion: StructureLoss
 total_iter: 10000
+score_criteria: test_Dice   # metric returned by training() for Optuna / reporting
 
 optimizer:
-  lr: 0.001
+  lr: 0.005
   weight_decay: 0.0001
   momentum: 0.9
 
@@ -40,10 +46,11 @@ scheduler:
 Hook:
   SupervisedEvalHook:
     eval_every_epoch: 2
-  FrequentSaveModelSingle:
+  SmartSaveHook:
     save_dir: save_dir/
-    save_every_epoch: 5
+    max_save_epoch_interval: 50
     save_name: supervised_10pct
+    criteria: test_Dice
   LoggerHook:
     logger_file: logs/supervised.json
   MLFlowLoggerHook:
