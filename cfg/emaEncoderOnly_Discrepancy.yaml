@@ -81,7 +81,7 @@ hyperparameter_sweeping:
     params:
       name: fea_discrepancy_weight
       low: 0.05
-      high: 0.2
+      high: 0.3
   Trainer.fea_discrepancy_rampup:
     method: suggest_float
     params:
