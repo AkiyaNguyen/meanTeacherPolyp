@@ -66,7 +66,7 @@ class BCEDiceLoss(nn.Module):
         return self.mask_bce(pred, target) + self.dice(pred, target)
 
 
-class FeatureSimilarityLoss(nn.Module):
+class MinimizeFeatureSimilarityLoss(nn.Module):
     """Cosine-similarity-based loss between two feature maps (GAP then normalize)."""
 
     def __init__(self):
@@ -79,7 +79,19 @@ class FeatureSimilarityLoss(nn.Module):
         fea2 = F.normalize(fea2, dim=1)
         sim = F.cosine_similarity(fea1, fea2, dim=1)
         return (1 + sim).mean()
+class MaximizeFeatureSimilarityLoss(nn.Module):
+    """Cosine-similarity-based loss between two feature maps (GAP then normalize)."""
 
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, feat1: torch.Tensor, feat2: torch.Tensor) -> torch.Tensor:
+        fea1 = F.adaptive_avg_pool2d(feat1, 1).flatten(1)
+        fea2 = F.adaptive_avg_pool2d(feat2, 1).flatten(1)
+        fea1 = F.normalize(fea1, dim=1)
+        fea2 = F.normalize(fea2, dim=1)
+        sim = F.cosine_similarity(fea1, fea2, dim=1)
+        return (1 - sim).mean()
 
 class StructureLoss(nn.Module):
     """Weighted BCE + weighted IoU on structure (edge-weighted by avg_pool distance from mask).

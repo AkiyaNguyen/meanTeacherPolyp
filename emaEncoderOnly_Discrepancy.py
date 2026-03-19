@@ -9,7 +9,7 @@ import argparse
 
 from utils.common import *
 from utils.dpa import dpa
-from utils.loss import SoftmaxMSELoss, BCEDiceLoss, FeatureSimilarityLoss, StructureLoss, L2Loss
+from utils.loss import SoftmaxMSELoss, BCEDiceLoss, MinimizeFeatureSimilarityLoss, MaximizeFeatureSimilarityLoss, StructureLoss, L2Loss
 import torch
 import torch.nn as nn
 import optuna
@@ -48,8 +48,8 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.class_criterion = nn.BCELoss()
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
-        self.feature_similarity_loss = FeatureSimilarityLoss()
-        self.feature_consistency_loss = L2Loss()
+        self.feature_similarity_loss = MinimizeFeatureSimilarityLoss()
+        self.feature_consistency_loss = MaximizeFeatureSimilarityLoss()
 
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)
