@@ -7,19 +7,15 @@ Style aligned with emaEncoderOnlyTrain.py (training(cfg, trial), Optuna, score_c
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
 from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
-from test.eval import evaluate, ImageFolderDataset
-from data.transform import Resize, ToTensor
-from torchvision import transforms
 import typing
 import argparse
 import copy
-from torch.utils.data import Subset
 from utils import loss
 from utils.common import *
-from data import dataset
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 import optuna
+from utils.build_dataset import build_dataset
 
 
 class SupervisedTrainer(Trainer):
@@ -156,93 +152,15 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
 
-    val_perc = int(cfg.get('data.val_split_perc', 0))
-    resize_h = cfg.get('data.test.resize_height', cfg.get('data.eval.resize_height', 320))
-    resize_w = cfg.get('data.test.resize_width', cfg.get('data.eval.resize_width', 320))
-    val_test_transform = transforms.Compose([
-        Resize((resize_w, resize_h)),
-        ToTensor()
-    ])
+    train_dataloader, val_dataloader, test_dataloader = build_dataset(cfg)
+    assert train_dataloader is not None, "train_dataloader is None"
+    assert test_dataloader is not None, "test_dataloader is None"
 
-    train_dataloader = None
-    val_dataloader = None
-
-    if val_perc == 0:
-        train_data = getattr(dataset, cfg.get('data.dataset'))(
-            root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'),
-            mode='train', require_depth=cfg.get('data.require_depth', False), list_name=None
-        )
-        train_num = len(train_data)
-        if cfg.get('data.label_mode') == 'percentage':
-            labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
-            if labeled_num % 2 != 0:
-                labeled_num -= 1
-        else:
-            labeled_num = cfg.get('data.labeled_num')
-        print(f"Total training images: {train_num}, using labeled: {labeled_num} ({100 * labeled_num / train_num:.1f}%)")
-        labeled_subset = Subset(train_data, range(labeled_num))
-        batch_size = int(cfg.get('data.labeled_bs', cfg.get('data.batch_size', 4)))
-        train_dataloader = torch.utils.data.DataLoader(
-            labeled_subset, batch_size=batch_size, shuffle=True, num_workers=cfg.get('data.num_workers', 0)
-        )
-
-    elif val_perc < 100:
-        print(f"Validation split: {val_perc}%")
-        data_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'), 'images')
-        all_files = np.random.permutation([f for f in os.listdir(data_root) if f.endswith(('.png', '.jpg', '.jpeg'))]).tolist()
-        total_num = len(all_files)
-        val_num = round(total_num * val_perc / 100)
-        train_num = total_num - val_num
-        val_files = all_files[:val_num]
-        train_files = all_files[val_num:]
-
-        train_data_full = getattr(dataset, cfg.get('data.dataset'))(
-            root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'),
-            mode='train', require_depth=cfg.get('data.require_depth', False), list_name=train_files
-        )
-        if cfg.get('data.label_mode') == 'percentage':
-            labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
-            if labeled_num % 2 != 0:
-                labeled_num -= 1
-        else:
-            labeled_num = cfg.get('data.labeled_num')
-        print(f"Train images: {train_num}, labeled: {labeled_num} ({100 * labeled_num / train_num:.1f}%)")
-        labeled_subset = Subset(train_data_full, range(labeled_num))
-        batch_size = int(cfg.get('data.labeled_bs', cfg.get('data.batch_size', 4)))
-        train_dataloader = torch.utils.data.DataLoader(
-            labeled_subset, batch_size=batch_size, shuffle=True, num_workers=cfg.get('data.num_workers', 0)
-        )
-
-        train_dataset_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'))
-        val_data = ImageFolderDataset(
-            dataset_root=train_dataset_root,
-            image_dirname=cfg.get('data.image_dirname', 'images'),
-            mask_dirname=cfg.get('data.mask_dirname', 'masks'),
-            transform=val_test_transform, list_name=val_files
-        )
-        val_dataloader = torch.utils.data.DataLoader(
-            val_data, batch_size=cfg.get('data.test.batch_size', 1), shuffle=False, num_workers=0
-        )
-
-    else:
-        raise ValueError("val_perc must be between 0 and 100.")
-
-    test_data = ImageFolderDataset(
-        dataset_root=cfg.get('data.test.dataset_root'),
-        image_dirname=cfg.get('data.test.image_dirname'),
-        mask_dirname=str(cfg.get('data.test.mask_dirname')),
-        transform=val_test_transform, list_name=None
-    )
-    test_dataloader = torch.utils.data.DataLoader(
-        test_data, batch_size=cfg.get('data.test.batch_size', 1), shuffle=False, num_workers=0
-    )
-
-    print(f"Total evaluation images: {len(test_dataloader.dataset)}")
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
+    nEpoch = cfg.get('total_iter') // iters_per_epoch
     total_iter = cfg.get('total_iter')
-    nEpoch = total_iter // iters_per_epoch
     print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
 
     model_name = cfg.get('model.stu_model.name', cfg.get('model.name', 'ResNet34U_f'))
