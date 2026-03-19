@@ -15,19 +15,13 @@ import torch.nn as nn
 import optuna
 from utils.build_dataset import build_dataset
 import mlflow.pytorch
-
-
+from test.eval import evaluate
+from utils.loss import SoftmaxMSELoss
 from torch.optim.lr_scheduler import LambdaLR
 
 from utils.ramps import sigmoid_rampup
 
-def softmax_mse_loss(input_logits, target_logits):
-    num_classes = input_logits.size()[1]
-    if num_classes == 1: ##
-        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    else:
-        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    return loss
+
 
 class SimpleMeanTeacherTrainer(Trainer):
     def __init__(self, stu_model, tea_model, train_dataloader, optimizer, scheduler, num_epochs, ema_alpha, \
@@ -49,7 +43,7 @@ class SimpleMeanTeacherTrainer(Trainer):
 
 
         self.class_criterion = nn.BCELoss()
-        self.consistency_criterion = softmax_mse_loss
+        self.consistency_criterion = SoftmaxMSELoss()
         # self.save_model = False
 
     def _update_ema_variable(self, global_step):

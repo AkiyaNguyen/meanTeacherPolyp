@@ -19,47 +19,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-
-
-def softmax_mse_loss(input_logits, target_logits):
-    num_classes = input_logits.size()[1]
-    if num_classes == 1:
-        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    else:
-        loss = F.mse_loss(input_logits, target_logits, reduction='mean') / num_classes
-    return loss
-
-
-def dice_loss(pred, target, smooth=1):
-    size = pred.size(0)
-    intersection = (pred * target).sum()
-    union = pred.sum() + target.sum()
-    dice_score = (2 * intersection + smooth) / (union + smooth)
-    return 1 - dice_score / size
-
-
-def mask_bce_loss(pred, target, threshold=0.95):
-    pred = pred.reshape(pred.shape[0], -1)
-    target = target.reshape(target.shape[0], -1)
-    mask = ((target > threshold) | (target < 1 - threshold)).float()
-    pred, target = pred * mask, target * mask
-    loss = nn.BCELoss(reduction='mean')
-    return loss(pred, target)
-
-
-def bce_dice_loss(pred, target):
-    bce_loss_value = mask_bce_loss(pred, target)
-    dice_loss_value = dice_loss(pred, target)
-    return bce_loss_value + dice_loss_value
-
-
-def feature_similarity_loss(rgb_feat, rgbd_feat):
-    rgb_feat = F.adaptive_avg_pool2d(rgb_feat, 1).flatten(1)
-    rgbd_feat = F.adaptive_avg_pool2d(rgbd_feat, 1).flatten(1)
-    rgb_feat = F.normalize(rgb_feat, dim=1)
-    rgbd_feat = F.normalize(rgbd_feat, dim=1)
-    sim = F.cosine_similarity(rgb_feat, rgbd_feat, dim=1)
-    return 1 - sim.mean()
+from utils.loss import SoftmaxMSELoss, BCEDiceLoss
 
 
 class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
@@ -83,8 +43,8 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.consistency = consistency
         self.fea_sim_weight = fea_sim_weight
         self.class_criterion = nn.BCELoss()
-        self.consistency_criterion = softmax_mse_loss
-        self.dpa_loss = bce_dice_loss
+        self.consistency_criterion = SoftmaxMSELoss()
+        self.dpa_loss = BCEDiceLoss()
 
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)

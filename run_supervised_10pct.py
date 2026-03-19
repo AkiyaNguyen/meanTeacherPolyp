@@ -16,6 +16,7 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 import optuna
 from utils.build_dataset import build_dataset
+from test.eval import evaluate
 
 
 class SupervisedTrainer(Trainer):
