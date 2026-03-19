@@ -5,7 +5,7 @@ model:
   stu_model:
     name: ResNet34U_f
   tea_model:
-    name: DepthFusion_ResNet34U_f_EMAEncoderOnly1
+    name: DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly
   num_channels_output: 1
 data:
   root: ../polypdepth_dataset/
