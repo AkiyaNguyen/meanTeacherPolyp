@@ -452,6 +452,164 @@ class DepthFusion_ResNet34U_f_EMAEncoderOnly1(nn.Module):
             return final_output
 
 
+class ResidualSEFusion(nn.Module):
+    def __init__(self, c1, c2, out_c):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(c1 + c2, out_c, 3, padding=1),
+            nn.BatchNorm2d(out_c),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x1, x2):
+        concat = torch.cat([x1, x2], dim=1)
+        return self.conv(concat)
+
+
+class DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
+    def __init__(self, num_classes, dropout=0.1):
+        super().__init__()
+        self.rgb_encoder = encoder(num_classes=None)
+
+        self.depth_encoder = encoder(num_classes=None)
+        
+        # Fusion blocks
+        self.fusion_block5 = ResidualSEFusion(512, 512, 512)
+        self.fusion_block4 = ResidualSEFusion(256, 256, 256)
+        self.fusion_block3 = ResidualSEFusion(128, 128, 128)
+        self.fusion_block2 = ResidualSEFusion(64, 64, 64)
+        self.fusion_block1 = ResidualSEFusion(64, 64, 64)
+        
+        up_channel_maker = lambda c_in, c_out: nn.Sequential(
+            nn.Conv2d(c_in, c_out, kernel_size=1),
+            nn.BatchNorm2d(c_out),
+            nn.ReLU(inplace=True)
+        )
+        self.up_channels = nn.ModuleList([
+            up_channel_maker(512, 512),
+            up_channel_maker(256, 256),
+            up_channel_maker(128, 128),
+            up_channel_maker(64, 64),
+            up_channel_maker(64, 64),
+        ])
+
+        self.decoder5 = DecoderBlock(512, 512)
+        self.decoder4 = DecoderBlock(512 + 256, 256)
+        self.decoder3 = DecoderBlock(256 + 128, 128)
+        self.decoder2 = DecoderBlock(128 + 64, 64)
+        self.decoder1 = DecoderBlock(64 + 64, 64)
+        
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+    
+    def forward(self, x, depth, fp=False):
+
+        # RGB-D fusion
+        e1, e2, e3, e4, e5 = self.rgb_encoder(x)
+        e1_d, e2_d, e3_d, e4_d, e5_d = self.depth_encoder(depth)
+        
+        res_f5 = self.fusion_block5(e5, e5_d)
+        res_f4 = self.fusion_block4(e4, e4_d)
+        res_f3 = self.fusion_block3(e3, e3_d)
+        res_f2 = self.fusion_block2(e2, e2_d)
+        res_f1 = self.fusion_block1(e1, e1_d)
+        
+        f5 = res_f5 + self.up_channels[0](e5)
+        f4 = res_f4 + self.up_channels[1](e4)
+        f3 = res_f3 + self.up_channels[2](e3)
+        f2 = res_f2 + self.up_channels[3](e2)
+        f1 = res_f1 + self.up_channels[4](e1)
+        
+        # Decoder
+        d5 = self.decoder5(f5)
+        d4 = self.decoder4(torch.cat([d5, f4], dim=1))
+        d3 = self.decoder3(torch.cat([d4, f3], dim=1))
+        d2 = self.decoder2(torch.cat([d3, f2], dim=1))
+        d1 = self.decoder1(torch.cat([d2, f1], dim=1))
+        
+        out1 = self.outconv(d1)
+        final_output = F.sigmoid(out1)
+        if fp:
+            fea = {'rgb_encode': e5, 'depth_encode': e5_d, 'fusion': f5, 'res_fusion': res_f5}
+            return final_output, fea
+        else:
+            return final_output
+
+
+# class DepthFusion_ResNet34U_f_EMAEncoderOnly_Disentanglement(nn.Module):
+#     def __init__(self, num_classes, dropout=0.1):
+#         super().__init__()
+#         self.rgb_encoder = encoder(num_classes=None)
+
+#         self.depth_encoder = encoder(num_classes=None)
+        
+#         # Fusion blocks
+#         self.fusion_block5 = SEFusionBlock(512, 512, 1024)
+#         self.fusion_block4 = SEFusionBlock(256, 256, 256)
+#         self.fusion_block3 = SEFusionBlock(128, 128, 128)
+#         self.fusion_block2 = SEFusionBlock(64, 64, 64)
+#         self.fusion_block1 = SEFusionBlock(64, 64, 64)
+        
+#         self.decoder5 = DecoderBlock(512, 512)
+#         self.decoder4 = DecoderBlock(512 + 256, 256)
+#         self.decoder3 = DecoderBlock(256 + 128, 128)
+#         self.decoder2 = DecoderBlock(128 + 64, 64)
+#         self.decoder1 = DecoderBlock(64 + 64, 64)
+
+#         self.fuse_before_split = nn.Sequential(
+#             nn.Conv2d(1024, 1024, kernel_size=3, stride=1, padding=1),
+#             nn.BatchNorm2d(1024),
+#             nn.ReLU(inplace=True)
+#         )
+#         self.avgpool = nn.AdaptiveAvgPool2d((1,1))
+
+        
+#         self.outconv = nn.Sequential(
+#             ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+#             nn.Dropout2d(dropout),
+#             nn.Conv2d(32, num_classes, 1),
+#         )
+    
+#     def forward(self, x, depth, fp=False):
+
+#         # RGB-D fusion
+#         e1, e2, e3, e4, e5 = self.rgb_encoder(x)
+#         e1_d, e2_d, e3_d, e4_d, e5_d = self.depth_encoder(depth)
+        
+#         f5 = self.fusion_block5(e5, e5_d)
+#         f4 = self.fusion_block4(e4, e4_d)
+#         f3 = self.fusion_block3(e3, e3_d)
+#         f2 = self.fusion_block2(e2, e2_d)
+#         f1 = self.fusion_block1(e1, e1_d)
+
+#         middle_feature = self.fuse_before_split(f5)
+#         inv, dom = torch.chunk(middle_feature, 2, dim=1)
+#         features = {'inv': inv, 'dom': dom}
+#         inv_pooled = torch.flatten(self.avgpool(inv), 1)
+#         dom_pooled = torch.flatten(self.avgpool(dom), 1)
+
+#         features['inv-pool'] = inv_pooled
+#         features['dom-pool'] = dom_pooled
+
+
+#         # Decoder
+#         d5 = self.decoder5(f5)
+#         d4 = self.decoder4(torch.cat([d5, f4], dim=1))
+#         d3 = self.decoder3(torch.cat([d4, f3], dim=1))
+#         d2 = self.decoder2(torch.cat([d3, f2], dim=1))
+#         d1 = self.decoder1(torch.cat([d2, f1], dim=1))
+        
+#         out1 = self.outconv(d1)
+#         final_output = F.sigmoid(out1)
+#         if fp:
+#             return final_output, features
+#         else:
+#             return final_output
+
+
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import argparse
 
 from utils.common import *
 from utils.dpa import dpa
-from utils.loss import SoftmaxMSELoss, BCEDiceLoss, FeatureSimilarityLoss, StructureLoss
+from utils.loss import SoftmaxMSELoss, BCEDiceLoss, FeatureSimilarityLoss, StructureLoss, L2Loss
 import torch
 import torch.nn as nn
 import optuna
@@ -18,10 +18,14 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 from utils.build_dataset import build_dataset
 
+# -- Import the teacher fusion model here (assuming it's in models) --
+import models
+
 class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
     """
-    Mean Teacher trainer for DepthFusion_ResNet34U_f_EMAEncoderOnly.
-    Teacher returns a single tensor (no dict). EMA copies student encoder -> teacher rgb_encoder only.
+    Mean Teacher trainer using DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly as Teacher.
+    Teacher returns (prediction, feature_dict), and fusion is via SE-based residual fusion block. 
+    EMA copies student encoder --> teacher rgb_encoder only (rest of teacher is NOT updated via EMA).
     """
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, tea_optimizer, scheduler, num_epochs, ema_alpha,
                  consistency_rampup, consistency, fea_discrepancy_weight: float, fea_discrepancy_rampup: float, tea_scheduler=None, **kwargs) -> None:
@@ -45,6 +49,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
         self.feature_similarity_loss = FeatureSimilarityLoss()
+        self.feature_consistency_loss = L2Loss()
 
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)
@@ -53,6 +58,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         return self.fea_discrepancy_weight * sigmoid_rampup(current=global_step, rampup_length=self.fea_discrepancy_rampup)
 
     def _update_ema_variable(self, global_step, model_a: nn.Module, model_b: nn.Module):
+        # Only update the teacher's rgb_encoder (EMA copy from student encoder1)
         coeff = min(1 - 1 / (global_step + 1), self.ema_alpha)
         for tea_param, stu_param in zip(model_a.parameters(), model_b.parameters()):
             tea_param.data.mul_(coeff).add_(stu_param.data, alpha=1 - coeff)
@@ -87,7 +93,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         device = next(self.stu_model.parameters()).device
 
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
-                       'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
+                       'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': [], 'feature_consistent_loss': []}
         phase2_info = {'teacher_labeled_loss': [], 'fea_discrepancy_loss': [], 'loss': []}
 
         # ========== PHASE 1: Train Student + EMA (encoder only) ==========
@@ -101,12 +107,16 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             unlabeled_img_s = img_s[self.labeled_bs:]
             label = label[:self.labeled_bs]
 
-            stu_pred = self.stu_model(img_s)
+            stu_pred, stu_features = self.stu_model(img_s, fp=True)
             labeled_stu = stu_pred[:self.labeled_bs]
             unlabeled_stu = stu_pred[self.labeled_bs:]
+            unlabeled_stu_features = stu_features[self.labeled_bs:]
 
             with torch.no_grad():
-                tea_output = self.tea_model(unlabeled_img, unlabeled_depth)
+                tea_output, features = self.tea_model(unlabeled_img, unlabeled_depth, fp=True)
+
+            # The assumption is that 'rgb_encode' is a key in teacher's features (from fusion encoder - fusion before decoder)
+            feature_consistent_loss = self.feature_consistency_loss(unlabeled_stu_features, features['rgb_encode'])
 
             unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(
                 unlabeled_depth, unlabeled_img_s, tea_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
@@ -119,11 +129,12 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
-            total_loss = loss_sup + consistency_weight * loss_consist_rgbd + loss_consist_rgbd_cutmix
+            total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + feature_consistent_loss) + loss_consist_rgbd_cutmix
 
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
             self.stu_optimizer.step()
+            # EMA update: only the rgb_encoder in teacher is updated from student encoder1
             self._update_ema_variable(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader),
                 model_a=self.tea_model.rgb_encoder,
@@ -134,6 +145,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
             phase1_info['unlabeled_rgbd_cutmix_loss'].append(loss_consist_rgbd_cutmix.item())
             phase1_info['consistency_weight'].append(consistency_weight)
+            phase1_info['feature_consistent_loss'].append(feature_consistent_loss.item())
             phase1_info['loss'].append(total_loss.item())
             self.scheduler.step()
 
@@ -152,11 +164,13 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
             for param in self.tea_model.rgb_encoder.parameters():
                 param.requires_grad_(False)
+
             tea_rgbd_output, feature_dict = self.tea_model(img, depth, fp=True)
             tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
 
-            rgb_fea, depth_fea = feature_dict['rgb_encode'], feature_dict['depth_encode']
-            discrepancy_loss = self.feature_similarity_loss(rgb_fea, depth_fea)
+            rgb_fea, aux_fea = feature_dict['rgb_encode'], feature_dict['res_fusion']
+            discrepancy_loss = self.feature_similarity_loss(rgb_fea, aux_fea)  # Penalize difference between rgb branch and fused features
+
             discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
 
             loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
@@ -170,6 +184,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
             phase2_info['fea_discrepancy_loss'].append(discrepancy_loss.item())
             phase2_info['loss'].append(phase2_loss.item())
+            # Unfreeze all params again for next batch
             for param in self.tea_model.parameters():
                 param.requires_grad_(True)
 
@@ -190,7 +205,9 @@ class StopTrainAtEpoch(HookBase):
 
 
 class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
-    """Eval hook when teacher returns a single tensor (no dict)."""
+    """
+    Eval hook for Mean Teacher setup using fusion teacher model.
+    """
     def __init__(self, trainer: Trainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
         super().__init__(trainer, eval_data_loader)
         self.eval_every_epoch = eval_every_epoch
@@ -218,7 +235,10 @@ class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
                 stu_output = self.trainer.stu_model(img)
                 cur_stu_metrics = evaluate(stu_output, gt)
                 tea_output = self.trainer.tea_model(img, depth)
-                tea_rgbd_output = tea_output
+                if isinstance(tea_output, tuple):
+                    tea_rgbd_output = tea_output[0]
+                else:
+                    tea_rgbd_output = tea_output
                 cur_tea_rgbd_metrics = evaluate(tea_rgbd_output, gt)
                 for key, value in cur_stu_metrics.items():
                     metrics['stu_' + key].append(value)
@@ -279,8 +299,8 @@ class SmartSaveHook(HookBase):
                 registered_model_name=f"{self.save_name}_teacher_final"
             )
             print(f"Student & Teacher models logged to DagsHub MLflow!")
-            
-            
+
+
 
 def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     if trial is not None:
@@ -337,10 +357,6 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                 max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval')), \
                 save_name=cfg.get('Hook.SmartSaveHook.save_name'), \
                 criteria=cfg.get('Hook.SmartSaveHook.criteria'))
-    
-    # hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'),
-    #              save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')),
-    #              save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
     hook_builder(LoggerHook, logger_file='logs/simple.json')
     hook_builder(MLFlowLoggerHook, dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')),
                  dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')),
@@ -359,7 +375,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='EMA encoder-only Mean Teacher (DepthFusion_ResNet34U_f_EMAEncoderOnly).')
+    parser = argparse.ArgumentParser(description='EMA encoder-only Mean Teacher (DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly).')
     parser.add_argument('--optuna_trial_times', type=int, default=4, help='Optuna trials; 0 = no Optuna.')
     parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()

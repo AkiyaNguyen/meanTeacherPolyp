@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+## this is just mseloss 
 class SoftmaxMSELoss(nn.Module):
     """MSE between logits (e.g. student vs teacher predictions)."""
 
@@ -104,3 +105,11 @@ class StructureLoss(nn.Module):
         wiou = 1 - (inter + 1) / (union - inter + 1)
 
         return (wbce + wiou).mean()
+
+class L2Loss(nn.Module):
+    """L2 loss between two feature maps (GAP then normalize)."""
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, feat1: torch.Tensor, feat2: torch.Tensor) -> torch.Tensor:
+        return torch.norm(feat1 - feat2, p=2, dim=1).mean()
