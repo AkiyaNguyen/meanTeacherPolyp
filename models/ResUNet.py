@@ -453,11 +453,11 @@ class DepthFusion_ResNet34U_f_EMAEncoderOnly1(nn.Module):
 
 
 class ResidualSEFusion(nn.Module):
-    def __init__(self, c1, c2, out_c):
+    def __init__(self, c1, c2):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(c1 + c2, out_c, 3, padding=1),
-            nn.BatchNorm2d(out_c),
+            nn.Conv2d(c1 + c2, c1, 3, padding=1),
+            nn.BatchNorm2d(c1),
             nn.ReLU(inplace=True)
         )
 
@@ -474,24 +474,24 @@ class DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
         self.depth_encoder = encoder(num_classes=None)
         
         # Fusion blocks
-        self.fusion_block5 = ResidualSEFusion(512, 512, 512)
-        self.fusion_block4 = ResidualSEFusion(256, 256, 256)
-        self.fusion_block3 = ResidualSEFusion(128, 128, 128)
-        self.fusion_block2 = ResidualSEFusion(64, 64, 64)
-        self.fusion_block1 = ResidualSEFusion(64, 64, 64)
+        self.fusion_block5 = ResidualSEFusion(512, 512)
+        self.fusion_block4 = ResidualSEFusion(256, 256)
+        self.fusion_block3 = ResidualSEFusion(128, 128)
+        self.fusion_block2 = ResidualSEFusion(64, 64)
+        self.fusion_block1 = ResidualSEFusion(64, 64)
         
-        up_channel_maker = lambda c_in, c_out: nn.Sequential(
-            nn.Conv2d(c_in, c_out, kernel_size=1),
-            nn.BatchNorm2d(c_out),
-            nn.ReLU(inplace=True)
-        )
-        self.up_channels = nn.ModuleList([
-            up_channel_maker(512, 512),
-            up_channel_maker(256, 256),
-            up_channel_maker(128, 128),
-            up_channel_maker(64, 64),
-            up_channel_maker(64, 64),
-        ])
+        # up_channel_maker = lambda c_in, c_out: nn.Sequential(
+        #     nn.Conv2d(c_in, c_out, kernel_size=1),
+        #     nn.BatchNorm2d(c_out),
+        #     nn.ReLU(inplace=True)
+        # )
+        # self.up_channels = nn.ModuleList([
+        #     up_channel_maker(512, 512),
+        #     up_channel_maker(256, 256),
+        #     up_channel_maker(128, 128),
+        #     up_channel_maker(64, 64),
+        #     up_channel_maker(64, 64),
+        # ])
 
         self.decoder5 = DecoderBlock(512, 512)
         self.decoder4 = DecoderBlock(512 + 256, 256)
@@ -517,11 +517,17 @@ class DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
         res_f2 = self.fusion_block2(e2, e2_d)
         res_f1 = self.fusion_block1(e1, e1_d)
         
-        f5 = res_f5 + self.up_channels[0](e5)
-        f4 = res_f4 + self.up_channels[1](e4)
-        f3 = res_f3 + self.up_channels[2](e3)
-        f2 = res_f2 + self.up_channels[3](e2)
-        f1 = res_f1 + self.up_channels[4](e1)
+        # f5 = res_f5 + self.up_channels[0](e5)
+        # f4 = res_f4 + self.up_channels[1](e4)
+        # f3 = res_f3 + self.up_channels[2](e3)
+        # f2 = res_f2 + self.up_channels[3](e2)
+        # f1 = res_f1 + self.up_channels[4](e1)
+        f5 = res_f5 + e5
+        f4 = res_f4 + e4
+        f3 = res_f3 + e3
+        f2 = res_f2 + e2
+        f1 = res_f1 + e1
+        
         
         # Decoder
         d5 = self.decoder5(f5)
