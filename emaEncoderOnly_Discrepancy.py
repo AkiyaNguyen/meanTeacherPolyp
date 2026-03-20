@@ -172,10 +172,10 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             tea_rgbd_output, feature_dict = self.tea_model(img, depth, fp=True)
             tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
 
-            rgb_fea, aux_fea = feature_dict['rgb_encode'], feature_dict['res_fusion']
+            # rgb_fea, aux_fea = feature_dict['rgb_encode'], feature_dict['res_fusion']
             # discrepancy_loss = self.feature_similarity_loss(rgb_fea, aux_fea)  # Penalize difference between rgb branch and fused features
 
-            discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
+            # discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
 
             loss_tea_sup = self.class_criterion_for_teacher(tea_labeled_rgbd_output, label)
 
