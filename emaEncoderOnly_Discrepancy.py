@@ -47,6 +47,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.fea_discrepancy_rampup = fea_discrepancy_rampup
 
         self.class_criterion = nn.BCELoss()
+        self.class_criterion_for_teacher = StructureLoss()
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
         # self.feature_similarity_loss = MinimizeFeatureSimilarityLoss()
@@ -176,7 +177,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
             discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
 
-            loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
+            loss_tea_sup = self.class_criterion_for_teacher(tea_labeled_rgbd_output, label)
 
             phase2_loss = loss_tea_sup
             phase2_loss.backward()
