@@ -180,7 +180,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
         lambda e: max(0.0, 1.0 - pow(min(e, total_iter) / total_iter, scheduler_power))
     )
 
-    class_criterion = getattr(loss, cfg.get('Trainer.class_criterion', 'StructureLoss'))()
+    class_criterion = getattr(loss, cfg.get('Trainer.class_criterion', 'BCEDiceLoss'))()
 
     trainer = SupervisedTrainer(model, train_dataloader, optimizer, scheduler, nEpoch, class_criterion)
 

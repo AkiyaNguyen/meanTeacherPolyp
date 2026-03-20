@@ -17,9 +17,7 @@ import mlflow.pytorch
 from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 from utils.build_dataset import build_dataset
-import mlflow.pytorch
 
-# -- Import the teacher fusion model here (assuming it's in models) --
 import models
 
 class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
@@ -47,10 +45,11 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.fea_discrepancy_rampup = fea_discrepancy_rampup
 
         self.class_criterion = nn.BCELoss()
-        self.class_criterion_for_teacher = StructureLoss()
+        self.class_criterion_for_teacher = BCEDiceLoss()
+
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
-        # self.feature_similarity_loss = MinimizeFeatureSimilarityLoss()
+        self.feature_similarity_loss = MinimizeFeatureSimilarityLoss()
         self.feature_consistency_loss = MaximizeFeatureSimilarityLoss()
 
     def _get_current_consistency_weight(self, global_step):
@@ -96,9 +95,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
                        'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': [], 'feature_consistent_loss': []}
-        phase2_info = {'teacher_labeled_loss': [], 
-                    #    'fea_discrepancy_loss': [],
-                       'loss': []}
+        phase2_info = {'teacher_labeled_loss': [], 'fea_discrepancy_loss': [], 'loss': []}
 
         # ========== PHASE 1: Train Student + EMA (encoder only) ==========
         for batch_id, data in enumerate(self.train_dataloader):
@@ -172,21 +169,23 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             tea_rgbd_output, feature_dict = self.tea_model(img, depth, fp=True)
             tea_labeled_rgbd_output = tea_rgbd_output[:self.labeled_bs]
 
-            # rgb_fea, aux_fea = feature_dict['rgb_encode'], feature_dict['res_fusion']
-            # discrepancy_loss = self.feature_similarity_loss(rgb_fea, aux_fea)  # Penalize difference between rgb branch and fused features
+            rgb_fea, aux_fea = feature_dict['rgb_encode'], feature_dict['res_fusion']
+            discrepancy_loss = self.feature_similarity_loss(rgb_fea, aux_fea)  # Penalize difference between rgb branch and fused features
 
-            # discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
+            discrepancy_weight = self._get_current_fea_discrepancy_weight(batch_id + self.current_epoch * len(self.train_dataloader))
+
+            loss_tea_sup = self.class_criterion(tea_labeled_rgbd_output, label)
 
             loss_tea_sup = self.class_criterion_for_teacher(tea_labeled_rgbd_output, label)
 
-            phase2_loss = loss_tea_sup
+            phase2_loss = loss_tea_sup + discrepancy_weight * discrepancy_loss
             phase2_loss.backward()
             tea_param = self.tea_optimizer.param_groups[0]['params']
             torch.nn.utils.clip_grad_norm_(tea_param, max_norm=1.0)
             self.tea_optimizer.step()
 
             phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
-            # phase2_info['fea_discrepancy_loss'].append(discrepancy_loss.item())
+            phase2_info['fea_discrepancy_loss'].append(discrepancy_loss.item())
             phase2_info['loss'].append(phase2_loss.item())
             # Unfreeze all params again for next batch
             for param in self.tea_model.parameters():

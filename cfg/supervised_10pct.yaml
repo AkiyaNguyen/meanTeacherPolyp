@@ -31,7 +31,7 @@ data:
     batch_size: 1
 
 Trainer:
-  class_criterion: StructureLoss
+  class_criterion: BCEDiceLoss
 total_iter: 10000
 score_criteria: test_Dice   # metric returned by training() for Optuna / reporting
 

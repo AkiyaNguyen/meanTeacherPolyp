@@ -82,9 +82,9 @@ hyperparameter_sweeping:
       high: 0.5
   
   optimizer.lr:
-    method: suggest_flaot
+    method: suggest_float
     params:
       name: lr
       low: 0.001
-      hight: 0.005
+      high: 0.005
     
