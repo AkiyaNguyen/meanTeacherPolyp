@@ -42,7 +42,7 @@ class SimpleMeanTeacherTrainer(Trainer):
         # self.weight_decay = weight_decay
 
 
-        self.class_criterion = nn.BCELoss()
+        self.class_criterion = BCEDiceLoss()
         self.consistency_criterion = SoftmaxMSELoss()
         # self.save_model = False
 

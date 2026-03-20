@@ -40,7 +40,7 @@ class DepthEnhance_MT_Trainer(Trainer):
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
         self.fea_sim_weight = fea_sim_weight
-        self.class_criterion = nn.BCELoss()
+        self.class_criterion = BCEDiceLoss()
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
 
@@ -299,28 +299,14 @@ class SmartSaveHook(HookBase):
             print(f"Student & Teacher models logged to DagsHub MLflow!")
             
 
-def training(cfg: Config, trial= typing.Optional[optuna.trial.Trial]):
-    # parser = argparse.ArgumentParser(description='Depth Enhanced RGB-D Polyp Segmentation with Mean Teacher training (argparse for --config; key=value for OmegaConf overrides).')
-    # parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
-    # args, unknown = parser.parse_known_args()
-    # # unknown contains key=value overrides for OmegaConf (e.g. data.root=..., Trainer.consistency_rampup=200.0)
-    # cfg = Config(config_file=args.config, cli_overrides=unknown)
-
-    
+def training(cfg: Config, trial= typing.Optional[optuna.trial.Trial]):    
     ## ================ hyperparameter sweeping ==========================
     if trial is not None:
         sweep_config = cfg.get('hyperparameter_sweeping', {})
         for key, settings in sweep_config.items():
             suggested_value = getattr(trial, settings['method'])(**settings['params'])
             cfg.set(key, suggested_value)
-        # sweep_dict = {}
-        # sweep_dict['Trainper.fea_sim_weight'] = trial.suggest_float('fea_sim_weight', 0.0, 0.5)
-        # sweep_dict['optimizer.lr'] = trial.suggest_float('learning_rate',0.0001, 0.001)
-        # sweep_dict['total_iter'] = trial.suggest_int('total_iterations',1000, 1500)
-        # sweep_dict['Trainer.consistency_rampup'] = trial.suggest_float('consistency_rampup', 2000, 5000)
-        # sweep_dict['Trainer.consistency'] = trial.suggest_float('unsupevised_weight', 2.0, 4.0)
-
-        
+            
     print(cfg.all_config())
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))

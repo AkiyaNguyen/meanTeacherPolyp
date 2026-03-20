@@ -42,7 +42,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
         self.fea_sim_weight = fea_sim_weight
-        self.class_criterion = nn.BCELoss()
+        self.class_criterion = BCEDiceLoss()
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
 
