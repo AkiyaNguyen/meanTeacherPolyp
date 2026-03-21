@@ -95,7 +95,9 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         device = next(self.stu_model.parameters()).device
 
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
-                       'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': [], 'feature_consistent_loss': []}
+                       'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []
+                    #    , 'feature_consistent_loss': []
+                       }
         phase2_info = {'teacher_labeled_loss': [], 
                     #    'fea_discrepancy_loss': [],
                        'loss': []}
@@ -149,7 +151,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             phase1_info['unlabeled_rgbd_loss'].append(loss_consist_rgbd.item())
             phase1_info['unlabeled_rgbd_cutmix_loss'].append(loss_consist_rgbd_cutmix.item())
             phase1_info['consistency_weight'].append(consistency_weight)
-            phase1_info['feature_consistent_loss'].append(feature_consistent_loss.item())
+            # phase1_info['feature_consistent_loss'].append(feature_consistent_loss.item())
             phase1_info['loss'].append(total_loss.item())
             self.scheduler.step()
 
