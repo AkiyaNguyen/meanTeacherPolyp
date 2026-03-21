@@ -1,6 +1,10 @@
 """
-Fully supervised training for ResNet34U_f with only 10% labeled images.
-Same data split as Mean Teacher (first N% as labeled); no teacher, no consistency loss.
+Fully supervised RGB-D training on the labeled subset only (same labeled fraction as Mean Teacher).
+
+Train DataLoader: cfg ``data.fully_supervised_train: true`` → ``build_dataset`` uses
+``Subset(dataset, range(labeled_num))`` and a normal ``DataLoader`` (full batch_size, all
+samples have labels). No ``TwoStreamBatchSampler`` / unlabeled stream.
+
 Style aligned with emaEncoderOnlyTrain.py (training(cfg, trial), Optuna, score_criteria).
 """
 
@@ -167,6 +171,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
 
+    # Labeled-only loader when data.fully_supervised_train (see utils/build_dataset.py).
     train_dataloader, val_dataloader, test_dataloader = build_dataset(cfg)
     assert train_dataloader is not None, "train_dataloader is None"
     assert test_dataloader is not None, "test_dataloader is None"

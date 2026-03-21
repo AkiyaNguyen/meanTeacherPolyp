@@ -16,7 +16,9 @@ data:
   require_depth: true
   label_mode: percentage
   labeled_perc: 10
-  labeled_bs: 2
+  # fully_supervised_train: no TwoStreamBatchSampler; train only on first labeled_perc% (same indices as MT primary stream when shuffle=False).
+  fully_supervised_train: true
+  labeled_bs: 2  # unused when fully_supervised_train is true (kept for parity with MT configs)
   batch_size: 4
   shuffle: true
   num_workers: 0
