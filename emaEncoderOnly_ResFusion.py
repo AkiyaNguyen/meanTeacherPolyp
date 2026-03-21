@@ -113,7 +113,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
             stu_pred = self.stu_model(img_s)
             labeled_stu = stu_pred[:self.labeled_bs]
-            # unlabeled_stu = stu_pred[self.labeled_bs:]
+            unlabeled_stu = stu_pred[self.labeled_bs:]
             # unlabeled_stu_features = stu_features[self.labeled_bs:]
 
             with torch.no_grad():
