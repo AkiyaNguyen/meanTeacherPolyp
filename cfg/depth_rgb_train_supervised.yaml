@@ -64,11 +64,13 @@ Hook:
       - '*IoU*'
       - '*ACC_overall*'
 
-hyperparameters_sweeping:
+# Key must be hyperparameter_sweeping (matches run_supervised_for_depth_teacher.training).
+# Optuna suggest_categorical requires params.name (trial param id) and params.choices.
+hyperparameter_sweeping:
   model.name:
     method: suggest_categorical
     params:
+      name: model_name
       choices:
-        - Depth_W_ACM_ResNet34U_f_EMAEncoderOnly
         - DepthFusion_ResNet34U_f_EMAEncoderOnly
         - DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly
