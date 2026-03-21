@@ -1,9 +1,8 @@
 """
 Fully supervised RGB-D training on the labeled subset only (same labeled fraction as Mean Teacher).
 
-Train DataLoader: cfg ``data.fully_supervised_train: true`` → ``build_dataset`` uses
-``Subset(dataset, range(labeled_num))`` and a normal ``DataLoader`` (full batch_size, all
-samples have labels). No ``TwoStreamBatchSampler`` / unlabeled stream.
+Train DataLoader: ``utils.build_dataset_supervised.build_dataset_supervised`` — Subset of
+labeled indices and a normal ``DataLoader`` (no ``TwoStreamBatchSampler``).
 
 Style aligned with emaEncoderOnlyTrain.py (training(cfg, trial), Optuna, score_criteria).
 """
@@ -19,7 +18,7 @@ from utils.common import *
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 import optuna
-from utils.build_dataset import build_dataset
+from utils.build_dataset_supervised import build_dataset_supervised
 from test.eval import evaluate
 import models
 
@@ -171,8 +170,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
 
-    # Labeled-only loader when data.fully_supervised_train (see utils/build_dataset.py).
-    train_dataloader, val_dataloader, test_dataloader = build_dataset(cfg)
+    train_dataloader, val_dataloader, test_dataloader = build_dataset_supervised(cfg)
     assert train_dataloader is not None, "train_dataloader is None"
     assert test_dataloader is not None, "test_dataloader is None"
 

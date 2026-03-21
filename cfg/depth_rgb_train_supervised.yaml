@@ -16,9 +16,7 @@ data:
   require_depth: true
   label_mode: percentage
   labeled_perc: 10
-  # fully_supervised_train: no TwoStreamBatchSampler; train only on first labeled_perc% (same indices as MT primary stream when shuffle=False).
-  fully_supervised_train: true
-  labeled_bs: 2  # unused when fully_supervised_train is true (kept for parity with MT configs)
+  labeled_bs: 2  # used by Mean Teacher configs; supervised depth script uses build_dataset_supervised (no two-stream sampler)
   batch_size: 4
   shuffle: true
   num_workers: 0
