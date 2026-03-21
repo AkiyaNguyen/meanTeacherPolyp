@@ -51,7 +51,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.consistency_criterion = SoftmaxMSELoss()
         self.dpa_loss = BCEDiceLoss()
         # self.feature_similarity_loss = MinimizeFeatureSimilarityLoss()
-        self.feature_consistency_loss = MaximizeFeatureSimilarityLoss()
+        # self.feature_consistency_loss = MaximizeFeatureSimilarityLoss()
 
     def _get_current_consistency_weight(self, global_step):
         return self.consistency * sigmoid_rampup(current=global_step, rampup_length=self.consistency_rampup)
@@ -111,15 +111,15 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             unlabeled_img_s = img_s[self.labeled_bs:]
             label = label[:self.labeled_bs]
 
-            stu_pred, stu_features = self.stu_model(img_s, fp=True)
+            stu_pred = self.stu_model(img_s)
             labeled_stu = stu_pred[:self.labeled_bs]
-            unlabeled_stu = stu_pred[self.labeled_bs:]
-            unlabeled_stu_features = stu_features[self.labeled_bs:]
+            # unlabeled_stu = stu_pred[self.labeled_bs:]
+            # unlabeled_stu_features = stu_features[self.labeled_bs:]
 
             with torch.no_grad():
-                tea_output, features = self.tea_model(unlabeled_img, unlabeled_depth, fp=True)
+                tea_output = self.tea_model(unlabeled_img, unlabeled_depth)
 
-            feature_consistent_loss = self.feature_consistency_loss(unlabeled_stu_features, features['rgb_encode'])
+            # feature_consistent_loss = self.feature_consistency_loss(unlabeled_stu_features, features['rgb_encode'])
 
             unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(
                 unlabeled_depth, unlabeled_img_s, tea_output, beta=0.3, t=self.current_epoch, T=self.num_epochs
@@ -132,7 +132,8 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
-            total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + feature_consistent_loss) + loss_consist_rgbd_cutmix
+            # total_loss = loss_sup + consistency_weight * (loss_consist_rgbd + feature_consistent_loss) + loss_consist_rgbd_cutmix
+            total_loss = loss_sup + consistency_weight * loss_consist_rgbd + loss_consist_rgbd_cutmix
 
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
