@@ -89,7 +89,7 @@ def build_dataset_supervised(cfg):
 
     test_data = ImageFolderDataset(
         dataset_root=cfg.get('data.test.dataset_root'),
-        image_dirname=cfg.get('data.test.image_dirname'),
+        image_dirname=str(cfg.get('data.test.image_dirname')),
         mask_dirname=str(cfg.get('data.test.mask_dirname')),
         depth_dirname=str(cfg.get('data.test.depth_dirname')),
         transform=val_test_transform, list_name=None)
