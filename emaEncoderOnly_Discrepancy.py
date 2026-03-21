@@ -116,7 +116,6 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             with torch.no_grad():
                 tea_output, features = self.tea_model(unlabeled_img, unlabeled_depth, fp=True)
 
-            # The assumption is that 'rgb_encode' is a key in teacher's features (from fusion encoder - fusion before decoder)
             feature_consistent_loss = self.feature_consistency_loss(unlabeled_stu_features, features['rgb_encode'])
 
             unlabeled_img_s_cutmix, ema_pred_u_cutmix = dpa(

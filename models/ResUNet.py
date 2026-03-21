@@ -46,7 +46,7 @@ class encoder(nn.Module):
     def __init__(self, num_classes):
         super(encoder, self).__init__()
 
-        resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
+        resnet = models.resnet34(weights=None)
 
         # Encoder
         self.encoder1_conv = resnet.conv1
@@ -69,7 +69,7 @@ class encoder(nn.Module):
         e4 = self.encoder4(e3)
         e5 = self.encoder5(e4)
 
-        return e1, e2, e3, e4, e5
+        return e1, e2, e3, e4, e5 ## 64, 64, 128, 256, 512
 
 
 
@@ -220,26 +220,127 @@ class CNNFusionBlock(nn.Module):
     def forward(self, x1, x2):
         return self.conv(torch.cat([x1, x2], dim=1))
 
+class SEBlock(nn.Module):
+    def __init__(self,input_channels, mid_channels=32):
+        super().__init__()
+        self.se = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(input_channels, mid_channels, 1), nn.ReLU(),
+            nn.Conv2d(mid_channels, input_channels, 1), nn.Sigmoid()   
+        )
+    def forward(self, x):
+        return x * self.se(x)
+
 class SEFusionBlock(nn.Module):
     def __init__(self, c1, c2, out_c):
         super().__init__()
         total_c = c1 + c2
-        
-        self.se = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(total_c, 32, 1), nn.ReLU(),
-            nn.Conv2d(32, total_c, 1), nn.Sigmoid()
-        )
-        
+        self.se = SEBlock(total_c)
         self.conv = nn.Conv2d(total_c, out_c, 3, padding=1)
     
     def forward(self, x1, x2):
         cat = torch.cat([x1, x2], dim=1)  # [B,1024,H,W]
         
-        attn = self.se(cat)
-        enhanced = cat * attn
+        enhanced = self.se(cat)
         
         return self.conv(enhanced)
+
+class ACFusionBlock(nn.Module):
+    """
+    implementation of attention complementary module 
+    from "https://arxiv.org/abs/1905.10089"
+
+    """
+    def __init__(self, channel):
+        super().__init__()
+        self.se1 = SEBlock(input_channels=channel)
+        self.se2 = SEBlock(input_channels=channel)
+    def forward(self, x1, x2, preceding_feature=None):
+        """
+        ensure that the shape of x1 and x2 are the same and previous feature (if exists) are the same
+        """
+        se1 = self.se1(x1)
+        se2 = self.se2(x2)
+        if preceding_feature is not None:
+            return preceding_feature + se1 + se2
+        else:
+            return se1 + se2
+
+
+class Depth_W_ACM_ResNet34U_f_EMAEncoderOnly(nn.Module):
+    def __init__(self, num_classes, dropout=0.1):
+        super().__init__()
+        self.rgb_encoder = encoder(num_classes=None)
+
+        self.depth_encoder = encoder(num_classes=None)
+        
+        # Fusion blocks
+        self.fusion_block5 = ACFusionBlock(512)
+        self.fusion_block4 = ACFusionBlock(256)
+        self.fusion_block3 = ACFusionBlock(128)
+        self.fusion_block2 = ACFusionBlock(64)
+        self.fusion_block1 = ACFusionBlock(64)
+
+        res_merge = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
+
+        self.merge_layer1 = res_merge.layer1
+        self.merge_layer2 = res_merge.layer2
+        self.merge_layer3 = res_merge.layer3
+        self.merge_layer4 = res_merge.layer4
+
+        self.decoder5 = DecoderBlock(512, 512)
+        self.decoder4 = DecoderBlock(512 + 256, 256)
+        self.decoder3 = DecoderBlock(256 + 128, 128)
+        self.decoder2 = DecoderBlock(128 + 64, 64)
+        self.decoder1 = DecoderBlock(64 + 64, 64)
+        
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+    
+    def forward(self, x, depth, fp=False):
+
+        # RGB-D fusion
+        e1, e2, e3, e4, e5 = self.rgb_encoder(x)
+        e1_d, e2_d, e3_d, e4_d, e5_d = self.depth_encoder(depth)
+        
+        # f5 = self.fusion_block5(e5, e5_d)
+        # f5 = ...
+        # f4 = self.fusion_block4(e4, e4_d, preceding_feature=f5)
+        # f4 = ...
+        # f3 = self.fusion_block3(e3, e3_d, preceding_feature=f4)
+        # f3 = ...
+        # f2 = self.fusion_block2(e2, e2_d, preceding_feature=f3)
+        # f2 = ...
+        # f1 = self.fusion_block1(e1, e1_d, preceding_feature=f2)
+
+        f1 = self.fusion_block1(e1, e1_d)
+        m = nn.MaxPool2d(3, stride=2, padding=1)
+        merge_f1 = self.merge_layer1(m(f1))
+        f2 = self.fusion_block2(e2, e2_d, preceding_feature=merge_f1)
+        merge_f2 = self.merge_layer2(f2)
+        f3 = self.fusion_block3(e3, e3_d, preceding_feature=merge_f2)
+        merge_f3 = self.merge_layer3(f3)
+        f4 = self.fusion_block4(e4, e4_d, preceding_feature=merge_f3)
+        merge_f4 = self.merge_layer4(f4)
+        f5 = self.fusion_block5(e5, e5_d, preceding_feature=merge_f4)
+
+        # Decoder
+        d5 = self.decoder5(f5)
+        d4 = self.decoder4(torch.cat([d5, f4], dim=1))
+        d3 = self.decoder3(torch.cat([d4, f3], dim=1))
+        d2 = self.decoder2(torch.cat([d3, f2], dim=1))
+        d1 = self.decoder1(torch.cat([d2, f1], dim=1))
+        
+        out1 = self.outconv(d1)
+        final_output = F.sigmoid(out1)
+        if fp:
+            return final_output, f5
+        else:
+            return final_output
+
 
 
 class Depth_W_CNNFusion_ResNet34U_f(nn.Module):
@@ -624,7 +725,10 @@ if __name__ == "__main__":
     mask = torch.randn(1, 2, 320, 320)
 
         # Training example (Mean Teacher)
-    teacher = Depth_W_SEFusion_ResNet34U_f(num_classes=1)
+    # teacher = Depth_W_SEFusion_ResNet34U_f(num_classes=1)
 
-    student = ResNet34U_f(num_classes=1)    
+    # student = ResNet34U_f(num_classes=1)    
 
+    teacher = Depth_W_ACM_ResNet34U_f_EMAEncoderOnly(num_classes=1)
+    pred = teacher(rgb, depth)
+    print(pred.shape)
