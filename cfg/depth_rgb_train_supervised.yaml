@@ -28,7 +28,6 @@ data:
     image_dirname: images
     mask_dirname: masks
     depth_dirname: depth-v1
-    require_depth: true
     batch_size: 1
 
 Trainer:

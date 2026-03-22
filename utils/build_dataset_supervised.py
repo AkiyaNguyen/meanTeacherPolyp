@@ -87,12 +87,11 @@ def build_dataset_supervised(cfg):
     else:
         raise ValueError("val_perc must be between 0 and 100.")
 
-    depth_dir = str(cfg.get('data.test.depth_dirname')) if cfg.get('data.test.require_depth') else None
     test_data = ImageFolderDataset(
         dataset_root=cfg.get('data.test.dataset_root'),
         image_dirname=str(cfg.get('data.test.image_dirname')),
         mask_dirname=str(cfg.get('data.test.mask_dirname')),
-        depth_dirname=str(depth_dir),
+        depth_dirname=str(cfg.get('data.test.depth_dirname', '')),
         transform=val_test_transform, list_name=None)
 
     test_dataloader = torch.utils.data.DataLoader(
