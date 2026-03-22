@@ -28,6 +28,8 @@ data:
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
     image_dirname: images
     mask_dirname: masks
+    depth_dirname: depth-v1
+    require_depth: false
     batch_size: 1
 
 Trainer:
