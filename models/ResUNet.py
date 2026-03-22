@@ -46,7 +46,7 @@ class encoder(nn.Module):
     def __init__(self, num_classes):
         super(encoder, self).__init__()
 
-        resnet = models.resnet34(weights=None)
+        resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
 
         # Encoder
         self.encoder1_conv = resnet.conv1

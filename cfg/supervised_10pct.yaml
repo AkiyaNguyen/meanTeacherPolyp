@@ -3,8 +3,7 @@ device: cuda
 seed: 8888
 
 model:
-  stu_model:
-    name: ResNet34U_f
+  name: ResNet34U_f   # run_supervised_10pct reads model.name (not model.stu_model.name)
   num_channels_output: 1
 
 data:
@@ -28,7 +27,7 @@ data:
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
     image_dirname: images
     mask_dirname: masks
-    depth_dirname:
+    depth_dirname: ''
     batch_size: 1
 
 Trainer:
