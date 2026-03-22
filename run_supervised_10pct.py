@@ -15,7 +15,7 @@ from utils.common import *
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 import optuna
-from utils.build_dataset import build_dataset
+from utils.build_dataset import build_dataset_supervised
 from test.eval import evaluate
 
 
@@ -153,7 +153,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     device = get_proper_device(cfg.get('device'))
     set_seed(cfg.get('seed'))
 
-    train_dataloader, val_dataloader, test_dataloader = build_dataset(cfg)
+    train_dataloader, val_dataloader, test_dataloader = build_dataset_supervised(cfg)
     assert train_dataloader is not None, "train_dataloader is None"
     assert test_dataloader is not None, "test_dataloader is None"
 
@@ -164,8 +164,8 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     total_iter = cfg.get('total_iter')
     print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
 
-    model_name = cfg.get('model.stu_model.name', cfg.get('model.name', 'ResNet34U_f'))
-    num_classes = cfg.get('model.stu_model.num_channels_output', cfg.get('model.num_channels_output', 1))
+    model_name = cfg.get('model.name', 'ResNet34U_f')
+    num_classes = cfg.get('model.num_channels_output', 1)
     model = getattr(models, model_name)(num_classes=num_classes).to(device)
 
     optimizer = torch.optim.SGD(
