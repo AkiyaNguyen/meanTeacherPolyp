@@ -20,6 +20,7 @@ def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
         if ext == ".png":
             print("check ext = ", ext)
+            print("check os.path.isfile(os.path.join(depth_dir, stem + ext)) = ", os.path.isfile(os.path.join(depth_dir, stem + ext)))
             if os.path.isfile(os.path.join(depth_dir, stem + ext)):
                 print("return cand = ", os.path.join(depth_dir, stem + ext))
                 return os.path.join(depth_dir, stem + ext)
