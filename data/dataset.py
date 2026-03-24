@@ -58,6 +58,8 @@ class kvasir_SEG(Dataset):
             self.depth_list = []
             for img_id in self.images_list:
                 self.depth_list.append(_resolve_depth_file(depth_dir, img_id))
+            print("depth_list = ", self.depth_list)
+            exit()
 
 
         if transform is None:
