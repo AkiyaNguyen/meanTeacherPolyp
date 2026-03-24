@@ -44,7 +44,11 @@ def build_dataset_supervised(cfg):
     if val_perc == 0:
         train_data = getattr(dataset, cfg.get('data.dataset'))(
             root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'),
-            mode='train', require_depth=cfg.get('data.require_depth'), list_name=None)
+            mode='train', require_depth=cfg.get('data.require_depth'), list_name=None,
+            image_dirname=cfg.get('data.image_dirname'),
+            mask_dirname=cfg.get('data.mask_dirname'),
+            depth_dirname=cfg.get('data.depth_dirname'),
+            )
         train_num = len(train_data)
         print(f"[supervised] Total training images: {train_num}")
         labeled_num = _labeled_num(train_num, cfg)
@@ -68,7 +72,12 @@ def build_dataset_supervised(cfg):
         train_files = all_files[val_num:]
         train_data = getattr(dataset, cfg.get('data.dataset'))(
             root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'),
-            mode='train', require_depth=cfg.get('data.require_depth'), list_name=train_files)
+            mode='train', require_depth=cfg.get('data.require_depth'), 
+            list_name=train_files,
+            image_dirname=cfg.get('data.image_dirname'),
+            mask_dirname=cfg.get('data.mask_dirname'),
+            depth_dirname=cfg.get('data.depth_dirname'),
+            )
         labeled_num = _labeled_num(train_num, cfg)
         print(f"[supervised] Labeled subset: {labeled_num} ({labeled_num / train_num * 100:.2f}% of train split)")
         train_dataloader = torch.utils.data.DataLoader(
