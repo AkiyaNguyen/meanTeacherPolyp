@@ -80,21 +80,20 @@ def build_dataset_supervised(cfg):
         train_dataset_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'))
         val_data = ImageFolderDataset(
             dataset_root=train_dataset_root,
-            image_dirname='images', mask_dirname='masks', depth_dirname='depth-v1',
+            image_dirname=cfg.get('data.test.image_dirname'), 
+            mask_dirname=cfg.get('data.test.mask_dirname'), 
+            depth_dirname=cfg.get('data.test.depth_dirname'),
             transform=val_test_transform, list_name=val_files)
         val_dataloader = torch.utils.data.DataLoader(
             val_data, batch_size=cfg.get('data.test.batch_size'), shuffle=False, num_workers=0)
     else:
         raise ValueError("val_perc must be between 0 and 100.")
 
-    _test_depth = cfg.get('data.test.depth_dirname', '')
-    if _test_depth is None:
-        _test_depth = ''
     test_data = ImageFolderDataset(
         dataset_root=cfg.get('data.test.dataset_root'),
-        image_dirname=str(cfg.get('data.test.image_dirname')),
-        mask_dirname=str(cfg.get('data.test.mask_dirname')),
-        depth_dirname=str(_test_depth),
+        image_dirname=cfg.get('data.test.image_dirname'),
+        mask_dirname=cfg.get('data.test.mask_dirname'),
+        depth_dirname=str(cfg.get('data.test.depth_dirname')),
         transform=val_test_transform, list_name=None)
 
     test_dataloader = torch.utils.data.DataLoader(
