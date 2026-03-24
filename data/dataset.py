@@ -17,6 +17,9 @@ def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
     Falls back to the exact ``image_filename`` under ``depth_dir`` last.
     """
     stem, _ext = os.path.splitext(image_filename)
+    print("stem = ", stem)
+    print("depth_dir = ", depth_dir)
+    print("_ext = ", _ext)
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
         cand = os.path.join(depth_dir, stem + ext)
         print("check cand = ", cand)
