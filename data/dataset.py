@@ -11,27 +11,15 @@ from PIL import Image
 
 
 def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
-    """Resolve depth path by stem match; try .png before .jpg so RGB .jpg + depth .png works.
-
-    If both ``stem.png`` and ``stem.jpg`` exist under ``depth_dir``, prefers ``.png`` (common for depth maps).
-    Falls back to the exact ``image_filename`` under ``depth_dir`` last.
-    """
+    """Pick depth file matching ``image_filename``; allow .png / .jpg / .jpeg interchangeably."""
+    primary = os.path.join(depth_dir, image_filename)
+    if os.path.isfile(primary):
+        return primary
     stem, _ext = os.path.splitext(image_filename)
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
-        if ext == ".png":
-            print("check ext = ", ext)
-            print(os.path.join(depth_dir, stem + ext))
-            print("check os.path.isfile(os.path.join(depth_dir, stem + ext)) = ", os.path.isfile(os.path.join(depth_dir, stem + ext)))
-            if os.path.isfile(os.path.join(depth_dir, stem + ext)):
-                print("return cand = ", os.path.join(depth_dir, stem + ext))
-                return os.path.join(depth_dir, stem + ext)
-            print("not found png")
-            exit()
         cand = os.path.join(depth_dir, stem + ext)
-        print("check cand = ", cand)
         if os.path.isfile(cand):
             return cand
-    primary = os.path.join(depth_dir, image_filename)
     return primary
 
 
@@ -70,8 +58,6 @@ class kvasir_SEG(Dataset):
             self.depth_list = []
             for img_id in self.images_list:
                 self.depth_list.append(_resolve_depth_file(depth_dir, img_id))
-            print("depth_list = ", self.depth_list)
-            exit()
 
 
         if transform is None:
