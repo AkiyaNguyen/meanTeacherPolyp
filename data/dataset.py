@@ -8,6 +8,21 @@ import numpy as np
 import random
 from PIL import ImageFilter
 from PIL import Image
+
+
+def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
+    """Pick depth file matching ``image_filename``; allow .png / .jpg / .jpeg interchangeably."""
+    primary = os.path.join(depth_dir, image_filename)
+    if os.path.isfile(primary):
+        return primary
+    stem, _ext = os.path.splitext(image_filename)
+    for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
+        cand = os.path.join(depth_dir, stem + ext)
+        if os.path.isfile(cand):
+            return cand
+    return primary
+
+
 def blur(img, p=0.5):
     if random.random() < p:
         sigma = np.random.uniform(0.1, 2.0)
@@ -39,9 +54,10 @@ class kvasir_SEG(Dataset):
 
         if require_depth:
             assert depth_dirname is not None, "depth_dirname is required if require_depth is True"
+            depth_dir = os.path.join(self.data_path, depth_dirname)
             self.depth_list = []
             for img_id in self.images_list:
-                self.depth_list.append(os.path.join(self.data_path, depth_dirname, img_id))
+                self.depth_list.append(_resolve_depth_file(depth_dir, img_id))
 
 
         if transform is None:

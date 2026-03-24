@@ -4,6 +4,7 @@ from PIL import Image
 from torchvision import transforms
 import torch
 from typing import List
+from data.dataset import _resolve_depth_file
 # from ..data.transform import *
 
 def evaluate(pred, gt):
@@ -72,7 +73,7 @@ class ImageFolderDataset(Dataset):
         depth = None
         if self.depth_path is not None:
             depth_name = self.image_files[index]
-            depth_path = os.path.join(self.depth_path, depth_name)
+            depth_path = _resolve_depth_file(self.depth_path, depth_name)
             depth = Image.open(depth_path).convert('RGB')
 
 
