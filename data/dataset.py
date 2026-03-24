@@ -11,15 +11,17 @@ from PIL import Image
 
 
 def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
-    """Pick depth file matching ``image_filename``; allow .png / .jpg / .jpeg interchangeably."""
-    primary = os.path.join(depth_dir, image_filename)
-    if os.path.isfile(primary):
-        return primary
+    """Resolve depth path by stem match; try .png before .jpg so RGB .jpg + depth .png works.
+
+    If both ``stem.png`` and ``stem.jpg`` exist under ``depth_dir``, prefers ``.png`` (common for depth maps).
+    Falls back to the exact ``image_filename`` under ``depth_dir`` last.
+    """
     stem, _ext = os.path.splitext(image_filename)
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
         cand = os.path.join(depth_dir, stem + ext)
         if os.path.isfile(cand):
             return cand
+    primary = os.path.join(depth_dir, image_filename)
     return primary
 
 
