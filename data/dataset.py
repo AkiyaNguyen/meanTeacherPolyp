@@ -17,16 +17,18 @@ def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
     Falls back to the exact ``image_filename`` under ``depth_dir`` last.
     """
     stem, _ext = os.path.splitext(image_filename)
-    print("stem = ", stem)
-    print("depth_dir = ", depth_dir)
-    print("_ext = ", _ext)
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
+        if ext == ".png":
+            print("check ext = ", ext)
+            if os.path.isfile(os.path.join(depth_dir, stem + ext)):
+                print("return cand = ", os.path.join(depth_dir, stem + ext))
+                return os.path.join(depth_dir, stem + ext)
+            print("not found png")
+            exit()
         cand = os.path.join(depth_dir, stem + ext)
         print("check cand = ", cand)
         if os.path.isfile(cand):
             return cand
-            print("return cand = ", cand)
-            exit()
     primary = os.path.join(depth_dir, image_filename)
     return primary
 
