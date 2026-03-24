@@ -12,6 +12,9 @@ data:
   dataset: kvasir_SEG
   data2_dir: TrainDataset
   require_depth: true
+  image_dirname: images
+  mask_dirname: masks
+  depth_dirname: depth-v1
   label_mode: percentage
   labeled_perc: 10
   labeled_bs: 2

@@ -10,9 +10,10 @@ data:
   root: ../polypdepth_dataset/
   dataset: kvasir_SEG
   data2_dir: TrainDataset
+  require_depth: true
   image_dirname: images
   mask_dirname: masks
-  depth_dirname: depth-v1
+  depth_dirname: depth-v1  
   require_depth: true
   label_mode: percentage
   labeled_perc: 11
