@@ -12,7 +12,7 @@ data:
   data2_dir: TrainDataset
   image_dirname: images
   mask_dirname: masks
-  depth_dirname: depth-v1
+  depth_dirname: 
   require_depth: false   # no depth needed for RGB-only model
   label_mode: percentage
   labeled_perc: 11
@@ -63,3 +63,20 @@ Hook:
       - '*Dice*'
       - '*IoU*'
       - '*ACC_overall*'
+
+hyperparameter_sweeping:
+  # model.name:
+  #   method: suggest_categorical
+  #   params:
+  #     name: model_name
+  #     choices:
+  #       - DepthFusion_ResNet34U_f_EMAEncoderOnly
+  #       - DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly
+  seed:
+    method: suggest_categorical
+    params:
+      name: seed
+      choices:
+        - 8888
+        - 7777
+        - 6666
