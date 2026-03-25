@@ -21,7 +21,8 @@ def build_dataset(cfg):
         data_root = os.path.join(cfg.get('data.root'), cfg.get('data.data2_dir'), 'images')
         train_data = getattr(dataset, cfg.get('data.dataset'))(
             root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'),
-            mode='train', require_depth=cfg.get('data.require_depth'), list_name=None)
+            mode='train', require_depth=cfg.get('data.require_depth'), 
+            depth_dirname=cfg.get('data.depth_dirname'), list_name=None)
         train_num = len(train_data)
         print(f"Total training images: {train_num}")
         if cfg.get('data.label_mode') == 'percentage':
