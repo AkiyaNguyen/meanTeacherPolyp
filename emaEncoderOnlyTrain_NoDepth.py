@@ -76,12 +76,11 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
             self.tea_scheduler.load_state_dict(state_dict['tea_scheduler'])
         # self.tea_optimizer.load_state_dict(state_dict['tea_optimizer'])
 
-    def _start_train_mode(self) -> None:
-        self.stu_model.train()
+    # def _start_train_mode(self) -> None:
+    #     self.stu_model.train()
 
     def run_step_(self) -> None:
         self.stu_model.train()
-        self.tea_model.eval()
         device = next(self.stu_model.parameters()).device
 
         info = {
@@ -197,14 +196,15 @@ class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
         assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model'), \
             "trainer must have stu_model and tea_model attributes"
         self.trainer.stu_model.eval()
+        self.trainer.tea_model.eval()
         device = next(self.trainer.stu_model.parameters()).device
         metrics = {
             'stu_ACC_overall': [],
-            'tea_rgbd_ACC_overall': [],
+            'tea_ACC_overall': [],
             'stu_Dice': [],
-            'tea_rgbd_Dice': [],
+            'tea_Dice': [],
             'stu_IoU': [],
-            'tea_rgbd_IoU': [],
+            'tea_IoU': [],
         }
         with torch.no_grad():
             for data in self.eval_data_loader:
@@ -213,12 +213,11 @@ class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
                 stu_output = self.trainer.stu_model(img)
                 cur_stu_metrics = evaluate(stu_output, gt)
                 tea_output = self.trainer.tea_model(img)
-                tea_rgbd_output = tea_output
-                cur_tea_rgbd_metrics = evaluate(tea_rgbd_output, gt)
+                cur_tea_metrics = evaluate(tea_output, gt)
                 for key, value in cur_stu_metrics.items():
                     metrics['stu_' + key].append(value)
-                for key, value in cur_tea_rgbd_metrics.items():
-                    metrics['tea_rgbd_' + key].append(value)
+                for key, value in cur_tea_metrics.items():
+                    metrics['tea_' + key].append(value)
         return {self.prefix + key: np.mean(value) for key, value in metrics.items()}
 
     def after_train_epoch(self) -> None:
