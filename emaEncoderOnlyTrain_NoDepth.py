@@ -124,7 +124,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
-            total_loss = loss_sup + (loss_consist_apa_cutmix + consistency_weight) * loss_consist
+            total_loss = loss_sup + (loss_consist_apa_cutmix + loss_consist) * consistency_weight
 
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.stu_model.parameters(), max_norm=1.0)
