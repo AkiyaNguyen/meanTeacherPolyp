@@ -62,7 +62,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
         result['stu_optimizer'] = self.stu_optimizer.state_dict()
         # result['tea_optimizer'] = self.tea_optimizer.state_dict()
         result['scheduler'] = self.scheduler.state_dict()
-        result['tea_scheduler'] = self.tea_scheduler.state_dict() if self.tea_scheduler is not None else None
+        result['tea_scheduler'] = self.tea_scheduler.state_dict() if hasattr(self, 'tea_scheduler') and self.tea_scheduler is not None else None
         return result
 
     def load_Trainer_ckpt(self, state_dict: dict) -> None:
@@ -72,7 +72,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
         self.stu_optimizer.load_state_dict(state_dict['stu_optimizer'])
         # self.tea_optimizer.load_state_dict(state_dict['tea_optimizer'])
         self.scheduler.load_state_dict(state_dict['scheduler'])
-        if state_dict.get('tea_scheduler') is not None and self.tea_scheduler is not None:
+        if hasattr(self, 'tea_scheduler') and state_dict.get('tea_scheduler') is not None and self.tea_scheduler is not None:
             self.tea_scheduler.load_state_dict(state_dict['tea_scheduler'])
         # self.tea_optimizer.load_state_dict(state_dict['tea_optimizer'])
 
