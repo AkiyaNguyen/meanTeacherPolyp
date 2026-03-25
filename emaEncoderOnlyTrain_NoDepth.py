@@ -84,10 +84,13 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
         self.tea_model.eval()
         device = next(self.stu_model.parameters()).device
 
-        phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
-                       'consistency_weight': [], 'unlabeled_rgbd_cutmix_loss': [], 'loss': []}
-        phase2_info = {'teacher_labeled_loss': []}
-
+        info = {
+            'labeled_loss': [],
+            'unlabeled_consistency_loss': [],
+            'unlabeled_apa_cutmix_consitency_loss': [],
+            'consistency_weight': [],
+            'loss': []
+        }
         for batch_id, data in enumerate(self.train_dataloader):
             self.stu_optimizer.zero_grad()
             img_s, img, label = data['image_s'], data['image'], data['label']
@@ -133,14 +136,14 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
                 model_b=self.stu_model,
             )
 
-            phase1_info['labeled_loss'].append(loss_sup.item())
-            phase1_info['unlabeled_consistency_loss'].append(loss_consist.item())
-            phase1_info['unlabeled_apa_cutmix_consitency_loss'].append(loss_consist_apa_cutmix.item())
-            phase1_info['consistency_weight'].append(consistency_weight)
-            phase1_info['loss'].append(total_loss.item())
+            info['labeled_loss'].append(loss_sup.item())
+            info['unlabeled_consistency_loss'].append(loss_consist.item())
+            info['unlabeled_apa_cutmix_consitency_loss'].append(loss_consist_apa_cutmix.item())
+            info['consistency_weight'].append(consistency_weight)
+            info['loss'].append(total_loss.item())
             self.scheduler.step()
 
-        self._add_info({f'{k}': np.mean(v) for k, v in phase1_info.items()})
+        self._add_info({f'{k}': np.mean(v) for k, v in info.items()})
 
         # # ========== PHASE 2: Train Teacher (depth/fusion/decoder), freeze rgb_encoder ==========
         # self.tea_model.train()
