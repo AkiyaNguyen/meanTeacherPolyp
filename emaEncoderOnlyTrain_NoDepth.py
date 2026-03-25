@@ -371,9 +371,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='EMA encoder-only Mean Teacher (DepthFusion_ResNet34U_f_EMAEncoderOnly).')
+    parser = argparse.ArgumentParser(description='EMA encoder-only Mean Teacher (ResNet34U_f_EMAEncoderOnly).')
     parser.add_argument('--optuna_trial_times', type=int, default=4, help='Optuna trials; 0 = no Optuna.')
-    parser.add_argument('--config', type=str, default='cfg/depth_enhance_mt.yaml', help='Path to YAML config')
+    parser.add_argument('--config', type=str, default='cfg/emaEncoderOnly_noDepth.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()
     cfg = Config(config_file=args.config, cli_overrides=unknown)
 
