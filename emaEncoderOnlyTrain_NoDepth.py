@@ -76,8 +76,8 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
             self.tea_scheduler.load_state_dict(state_dict['tea_scheduler'])
         # self.tea_optimizer.load_state_dict(state_dict['tea_optimizer'])
 
-    # def _start_train_mode(self) -> None:
-    #     self.stu_model.train()
+    def _start_train_mode(self) -> None:
+        self.stu_model.train()
 
     def run_step_(self) -> None:
         self.stu_model.train()
