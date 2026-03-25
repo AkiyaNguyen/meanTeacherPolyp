@@ -56,7 +56,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
 
     def get_Trainer_ckpt(self) -> dict:
         result = dict()
-        result['stu_model'] = self.stu_model.state_dict()
+        result['stu_model'] = self.stu_model.statse_dict()
         result['tea_model'] = self.tea_model.state_dict()
         result['current_epoch'] = self.current_epoch + 1
         result['stu_optimizer'] = self.stu_optimizer.state_dict()
@@ -78,6 +78,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
 
     def _start_train_mode(self) -> None:
         self.stu_model.train()
+        self.tea_model.eval()
 
     def run_step_(self) -> None:
         self.stu_model.train()
