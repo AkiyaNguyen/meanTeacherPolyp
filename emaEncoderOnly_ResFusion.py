@@ -353,6 +353,12 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
         tea_scheduler=tea_depth_branch_scheduler,
     )
 
+    if cfg.get('Trainer.load_ckpt_path', None) is not None:
+        trainer.load_Trainer_ckpt(torch.load(cfg.get('Trainer.load_ckpt_path')))
+        print(f"Loaded checkpoint from {cfg.get('Trainer.load_ckpt_path')}")
+    else:
+        print("No checkpoint loaded")
+
     hook_builder = HookBuilder(cfg, trainer)
     if val_dataloader is not None:
         hook_builder(MeanTeacherEvalHook_EMAEncoderOnly, eval_data_loader=val_dataloader,
