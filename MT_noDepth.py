@@ -1,6 +1,7 @@
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
+from engine.Hook import LoggerHook, EvalHook, StopTrainAtEpoch
+from utils.hook import ExtendMLFlowLoggerHook
 import copy
 
 from test.eval import evaluate
@@ -10,10 +11,9 @@ import argparse
 from utils.common import *
 from utils.dpa import dpa, apa_cutmix
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
 import optuna
-import mlflow.pytorch
+import mlflow
 
 from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
@@ -22,10 +22,11 @@ from utils.build_dataset import build_dataset
 from utils.loss import SoftmaxMSELoss, BCEDiceLoss
 
 
+
 class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
     """
-    Mean Teacher trainer for DepthFusion_ResNet34U_f_EMAEncoderOnly.
-    Teacher returns a single tensor (no dict). EMA copies student encoder -> teacher rgb_encoder only.
+    Mean Teacher trainer for ResNet34U_f
+    EMA copies entire student model -> teacher model
     """
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, scheduler, num_epochs, ema_alpha,
                  consistency_rampup, consistency, **kwargs) -> None:
@@ -78,10 +79,11 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
 
     def _start_train_mode(self) -> None:
         self.stu_model.train()
-        self.tea_model.eval()
+        self.tea_model.train()
 
     def run_step_(self) -> None:
         self.stu_model.train()
+        self.tea_model.train()
         device = next(self.stu_model.parameters()).device
 
         info = {
@@ -173,18 +175,6 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
         #     self.tea_scheduler.step()
         # self._add_info({f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()})
 
-
-class StopTrainAtEpoch(HookBase):
-    def __init__(self, trainer: Trainer, stop_at_epoch: int) -> None:
-        super().__init__(trainer)
-        self.stop_at_epoch = stop_at_epoch
-
-    def after_train_epoch(self) -> None:
-        if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
-            self.trainer.stop_training()
-            print(f"Training stopped at epoch {self.stop_at_epoch}")
-
-
 class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
     """Eval hook when teacher returns a single tensor (no dict)."""
     def __init__(self, trainer: Trainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
@@ -226,79 +216,6 @@ class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
             result = self._run_validation()
             self.trainer._add_info(result)
 
-
-# class FrequentSaveModel(HookBase):
-#     def __init__(self, trainer: Trainer, save_dir: str, save_every_epoch: int, save_name: str) -> None:
-#         super().__init__(trainer)
-#         self.save_dir = save_dir
-#         self.save_every_epoch = save_every_epoch
-#         self.save_name = save_name
-#         os.makedirs(self.save_dir, exist_ok=True)
-#         assert self.save_dir is not None and self.save_every_epoch >= 1 and self.save_name is not None, \
-#             "save_dir and save_every_epoch must be provided when save_model is True"
-
-#     def after_train_epoch(self) -> None:
-#         if (self.trainer.current_epoch + 1) % self.save_every_epoch == 0:
-#             epoch = self.trainer.current_epoch + 1
-#             assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model'), \
-#                 "trainer must have stu_model and tea_model attributes"
-#             stu_path = os.path.join(self.save_dir, f"{self.save_name}_epoch{epoch}.pth")
-#             tea_path = os.path.join(self.save_dir, f"{self.save_name}_teacher_epoch{epoch}.pth")
-#             torch.save(self.trainer.stu_model.state_dict(), stu_path)
-#             torch.save(self.trainer.tea_model.state_dict(), tea_path)
-#             print(f"Student saved at {stu_path}")
-#             print(f"Teacher saved at {tea_path}")
-
-
-class SmartSaveHook(HookBase):
-    def __init__(self, trainer: Trainer, save_dir: str, max_save_epoch_interval: int, save_name: str, criteria: str) -> None:
-        super().__init__(trainer)
-        self.save_dir = save_dir
-        os.makedirs(self.save_dir, exist_ok=True)
-        self.max_save_epoch_interval = max_save_epoch_interval
-        self.save_name = save_name
-        self.criteria = criteria
-        self.patience = 0
-        self.best_record = None
-        self.has_improved = False
-        self.ckpt = None
-    def after_train_epoch(self) -> None:
-        latest = self.trainer.info_storage.latest_info()
-        self.patience += 1
-
-        if self.criteria not in latest:
-            return
-        criteria_value = latest[self.criteria]
-        if self.best_record is None or criteria_value > self.best_record:
-            self.best_record = criteria_value
-            self.has_improved = True
-            self.ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
-
-        if self.patience >= self.max_save_epoch_interval and self.has_improved:
-            torch.save(self.ckpt, os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth"))
-            self.has_improved = False
-            self.patience = 0
-
-    def after_train(self) -> None:
-        if self.ckpt is not None:
-            torch.save(self.ckpt, os.path.join(self.save_dir, f"final_{self.save_name}.pth"))
-            print(f"Final model saved at {os.path.join(self.save_dir, f'final_{self.save_name}.pth')}")
-
-            assert hasattr(self.trainer, 'stu_model') and hasattr(self.trainer, 'tea_model')
-            
-            mlflow.pytorch.log_model(
-                pytorch_model=self.trainer.stu_model,  # Student (primary)
-                artifact_path="models/student_final",
-                registered_model_name=f"{self.save_name}_student_final"
-            )
-            mlflow.pytorch.log_model(
-                pytorch_model=self.trainer.tea_model,  # Teacher (EMA-updated)
-                artifact_path="models/teacher_final", 
-                registered_model_name=f"{self.save_name}_teacher_final"
-            )
-            print(f"Student & Teacher models logged to DagsHub MLflow!")
-            
-
 def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     if trial is not None:
         sweep_config = cfg.get('hyperparameter_sweeping', {})
@@ -328,7 +245,6 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                                 momentum=cfg.get('optimizer.momentum'), weight_decay=cfg.get('optimizer.weight_decay'))
     scheduler_power = float(cfg.get('scheduler.power'))
     scheduler = LambdaLR(optimizer, lambda e: max(0.0, 1.0 - pow(min(e, total_iter) / total_iter, scheduler_power)))
-    # tea_depth_branch_scheduler = LambdaLR(tea_depth_branch_optimizer, lambda e: max(0.0, 1.0 - pow(min(e, nEpoch) / nEpoch, scheduler_power)))
 
     trainer = MeanTeacherTrainer_EMAEncoderOnly_noDepth(
         stu_model, tea_model, train_dataloader,
@@ -337,8 +253,6 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
         ema_alpha=float(cfg.get('Trainer.ema_decay', 0.999)),
         consistency_rampup=float(cfg.get('Trainer.consistency_rampup')),
         consistency=float(cfg.get('Trainer.consistency')),
-        # fea_sim_weight=float(cfg.get('Trainer.fea_sim_weight', 0.5)),
-        # tea_scheduler=tea_depth_branch_scheduler,
     )
     if cfg.get('Trainer.load_ckpt_path', None) is not None:
         trainer.load_Trainer_ckpt(torch.load(cfg.get('Trainer.load_ckpt_path')))
@@ -352,21 +266,25 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                      eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='val_')
     hook_builder(MeanTeacherEvalHook_EMAEncoderOnly, eval_data_loader=test_dataloader,
                  eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
-    # hook_builder(FrequentSaveModel, save_dir=cfg.get('Hook.FrequentSaveModel.save_dir'),
-    #              save_every_epoch=int(cfg.get('Hook.FrequentSaveModel.save_every_epoch')),
-    #              save_name=cfg.get('Hook.FrequentSaveModel.save_name'))
-
-    hook_builder(SmartSaveHook, save_dir=cfg.get('Hook.SmartSaveHook.save_dir'), \
-                max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval')), \
-                save_name=cfg.get('Hook.SmartSaveHook.save_name'), \
-                criteria=cfg.get('Hook.SmartSaveHook.criteria'))
-    
     hook_builder(LoggerHook, logger_file='logs/simple.json')
-    hook_builder(MLFlowLoggerHook, dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')),
-                 dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name')),
-                 experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name'),
-                 dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'),
-                 logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
+    hook_builder(ExtendMLFlowLoggerHook, local_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.local_dir_save_ckpt'),
+                 dagshub_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_dir_save_ckpt'),
+                 max_save_epoch_interval=int(cfg.get('Hook.ExtendMLFlowLoggerHook.max_save_epoch_interval')),
+                 criteria=cfg.get('Hook.ExtendMLFlowLoggerHook.criteria'),
+                 dagshub_destination_src_file=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_destination_src_file')),
+                 list_src_dir_files=list(cfg.get('Hook.ExtendMLFlowLoggerHook.list_src_dir_files')),
+                 dagshub_meta_dir=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_meta_dir')),
+                 meta_info=dict(cfg.get('Hook.ExtendMLFlowLoggerHook.meta_info')),
+                 ## params for base mlflowloggerhook
+                 dagshub_repo_owner=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_owner'),
+                 dagshub_repo_name=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_name'),
+                 experiment_name=str(cfg.get('Hook.ExtendMLFlowLoggerHook.experiment_name')),
+                 dir_save_plot=cfg.get('Hook.ExtendMLFlowLoggerHook.dir_save_plot'),
+                 logging_fields=list(cfg.get('Hook.ExtendMLFlowLoggerHook.logging_fields')),
+                 run_name=cfg.get('Hook.ExtendMLFlowLoggerHook.run_name'),
+                 cfg=cfg,
+                 )
+                     
     hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
     trainer.train()
@@ -379,9 +297,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='EMA encoder-only Mean Teacher (ResNet34U_f_EMAEncoderOnly).')
+    parser = argparse.ArgumentParser(description='Mean Teacher (ResNet34U_f).')
     parser.add_argument('--optuna_trial_times', type=int, default=4, help='Optuna trials; 0 = no Optuna.')
-    parser.add_argument('--config', type=str, default='cfg/emaEncoderOnly_noDepth.yaml', help='Path to YAML config')
+    parser.add_argument('--config', type=str, default='cfg/MT_noDepth.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()
     cfg = Config(config_file=args.config, cli_overrides=unknown)
 

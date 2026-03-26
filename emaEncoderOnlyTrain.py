@@ -62,7 +62,8 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         result['stu_optimizer'] = self.stu_optimizer.state_dict()
         result['tea_optimizer'] = self.tea_optimizer.state_dict()
         result['scheduler'] = self.scheduler.state_dict()
-        result['tea_scheduler'] = self.tea_scheduler.state_dict() if self.tea_scheduler is not None else None
+        result['tea_scheduler'] = self.tea_scheduler.state_dict() if \
+            hasattr(self, 'tea_scheduler') and self.tea_scheduler is not None else None
         return result
 
     def load_Trainer_ckpt(self, state_dict: dict) -> None:
