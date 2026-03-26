@@ -80,7 +80,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
     def run_step_(self) -> None:
         self.stu_model.train()
-        self.tea_model.eval()
+        self.tea_model.train()
         device = next(self.stu_model.parameters()).device
 
         phase1_info = {'labeled_loss': [], 'unlabeled_rgbd_loss': [],
@@ -137,7 +137,6 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self._add_info({f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()})
 
         # ========== PHASE 2: Train Teacher (depth/fusion/decoder), freeze rgb_encoder ==========
-        self.tea_model.train()
         for batch_id, data in enumerate(self.train_dataloader):
             self.tea_optimizer.zero_grad()
             img_s, img, label, depth = data['image_s'], data['image'], data['label'], data['depth']
