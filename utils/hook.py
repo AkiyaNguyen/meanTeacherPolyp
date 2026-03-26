@@ -21,6 +21,10 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
         self.dagshub_dir_save_ckpt = dagshub_dir_save_ckpt
         self.max_save_epoch_interval = max_save_epoch_interval
         self.criteria = criteria
+        self.patience = 0
+        self.best_record = None
+        self.has_improved = False
+        self.ckpt_info = {'ckpt': None, 'epoch': None}
 
         self.dagshub_destination_src_file = dagshub_destination_src_file
         self.list_src_dir_files = list(list_src_dir_files) if list_src_dir_files is not None else []
