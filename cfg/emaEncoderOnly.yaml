@@ -79,6 +79,7 @@ Hook:
     dagshub_destination_src_file: 'src_file'
     list_src_dir_files: ['emaEncoderOnlyTrain.py']
     dagshub_meta_dir: 'meta'
+    run_name: 'ema_encoder_only_on_kvasir_SEG'
     meta_info:
       kaggle_run_link: 
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
