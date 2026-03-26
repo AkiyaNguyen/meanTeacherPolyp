@@ -72,8 +72,8 @@ class ImageFolderDataset(Dataset):
 
         depth = None
         if self.depth_path is not None:
-            depth_name = self.image_files[index]
-            depth_path = _resolve_depth_file(self.depth_path, depth_name)
+            depth_name_without_extension = self.image_files[index].split('.')[0]
+            depth_path = _resolve_depth_file(self.depth_path, depth_name_without_extension)
             depth = Image.open(depth_path).convert('RGB')
 
 
