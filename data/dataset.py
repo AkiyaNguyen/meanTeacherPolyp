@@ -10,18 +10,14 @@ from PIL import ImageFilter
 from PIL import Image
 
 
-def _resolve_depth_file(depth_dir: str, image_filename: str) -> str:
+def _resolve_depth_file(depth_dir: str, img_id: str) -> str:
     """Pick depth file matching ``image_filename``; allow .png / .jpg / .jpeg interchangeably."""
-    primary = os.path.join(depth_dir, image_filename)
-    if os.path.isfile(primary):
-        return primary
-    stem, _ext = os.path.splitext(image_filename)
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
-        cand = os.path.join(depth_dir, stem + ext)
+        cand = os.path.join(depth_dir, img_id + ext)
         if os.path.isfile(cand):
             return cand
-    return primary
-
+    raise FileNotFoundError(f"Depth file not found for {img_id}")
+    
 
 def blur(img, p=0.5):
     if random.random() < p:
@@ -48,7 +44,7 @@ class kvasir_SEG(Dataset):
         self.images_list = sorted(self.images_list)
 
         for img_id in self.images_list:
-            self.id_list.append(img_id.split('.')[0])
+            self.id_list.append(img_id.split('.')[0]) ## name without extension
             self.img_list.append(os.path.join(self.data_path, image_dirname, img_id))  # Image paths
             self.gt_list.append(os.path.join(self.data_path, mask_dirname, img_id))  # Mask paths
 
@@ -56,7 +52,7 @@ class kvasir_SEG(Dataset):
             assert depth_dirname is not None, "depth_dirname is required if require_depth is True"
             depth_dir = os.path.join(self.data_path, depth_dirname)
             self.depth_list = []
-            for img_id in self.images_list:
+            for img_id in self.id_list:
                 self.depth_list.append(_resolve_depth_file(depth_dir, img_id))
 
 
