@@ -8,4 +8,6 @@ github_token.txt
 
 **.ipynb
 
-analysis/infer_compare_student_teacher.py
+analysis/
+
+infer_compare_student_teacher.py
