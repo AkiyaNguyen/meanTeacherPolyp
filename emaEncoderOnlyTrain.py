@@ -273,6 +273,8 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                  criteria=cfg.get('Hook.ExtendMLFlowLoggerHook.criteria'),
                  dagshub_destination_src_file=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_destination_src_file')),
                  list_src_dir_files=list(cfg.get('Hook.ExtendMLFlowLoggerHook.list_src_dir_files')),
+                 dagshub_meta_dir=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_meta_dir')),
+                 meta_info=dict(cfg.get('Hook.ExtendMLFlowLoggerHook.meta_info')),
                  ## params for base mlflowloggerhook
                  dagshub_repo_owner=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_owner'),
                  dagshub_repo_name=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_name'),
