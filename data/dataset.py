@@ -14,6 +14,7 @@ def _resolve_depth_file(depth_dir: str, img_id: str) -> str:
     """Pick depth file matching ``image_filename``; allow .png / .jpg / .jpeg interchangeably."""
     for ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
         cand = os.path.join(depth_dir, img_id + ext)
+        print('candidate depth file: ', cand)
         if os.path.isfile(cand):
             return cand
     raise FileNotFoundError(f"Depth file not found for {img_id}")
