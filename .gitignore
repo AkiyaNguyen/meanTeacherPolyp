@@ -11,3 +11,7 @@ github_token.txt
 analysis/
 
 infer_compare_student_teacher.py
+
+temp_requirement.txt
+
+try.py

@@ -77,7 +77,7 @@ Hook:
     max_save_epoch_interval: 50
     criteria: test_stu_Dice
     dagshub_destination_src_file: 'src_file'
-    list_src_dir_files: ['emaEncoderOnlyTrain.py']
+    list_src_dir_files: ['utils', 'test','models', 'data','emaEncoderOnlyTrain.py']
     dagshub_meta_dir: 'meta'
     run_name: 
     meta_info:

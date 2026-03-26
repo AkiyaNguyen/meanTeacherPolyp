@@ -282,6 +282,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                  dir_save_plot=cfg.get('Hook.ExtendMLFlowLoggerHook.dir_save_plot'),
                  logging_fields=list(cfg.get('Hook.ExtendMLFlowLoggerHook.logging_fields')),
                  run_name=cfg.get('Hook.ExtendMLFlowLoggerHook.run_name'),
+                 cfg=cfg,
                  )
     hook_builder(LoggerHook, logger_file='logs/simple.json')
     # hook_builder(MLFlowLoggerHook, dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner')),
