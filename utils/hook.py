@@ -18,6 +18,8 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
         self.meta_info = meta_info if meta_info is not None else {}
         self.dagshub_meta_dir = dagshub_meta_dir
         self.local_dir_save_ckpt = local_dir_save_ckpt
+        os.makedirs(self.local_dir_save_ckpt, exist_ok=True)
+
         self.dagshub_dir_save_ckpt = dagshub_dir_save_ckpt
         self.max_save_epoch_interval = max_save_epoch_interval
         self.criteria = criteria
@@ -71,9 +73,10 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
     def after_train(self) -> None:
         super().after_train()
         if self.ckpt_info['ckpt'] is not None:
-            final_ckpt_save_dir = os.path.join(self.dagshub_dir_save_ckpt, f"final_{self.experiment_name}_epoch{self.ckpt_info['epoch']}.pth")
-            torch.save(self.ckpt_info['ckpt'], final_ckpt_save_dir)
-            print(f"Final model saved at {final_ckpt_save_dir}")
-            mlflow.log_artifact(final_ckpt_save_dir, artifact_path=self.dagshub_dir_save_ckpt)
+            ckpt_name = f"final_{self.experiment_name}_epoch{self.ckpt_info['epoch']}.pth"
+            ckpt_save_dir = os.path.join(self.local_dir_save_ckpt, ckpt_name)
+            torch.save(self.ckpt_info['ckpt'], ckpt_save_dir)
+            print(f"Final model saved at {ckpt_save_dir}")
+            mlflow.log_artifact(ckpt_save_dir, artifact_path=os.path.join(self.dagshub_dir_save_ckpt, ckpt_name))
             print(f"Final model logged to DagsHub MLflow!")
 
