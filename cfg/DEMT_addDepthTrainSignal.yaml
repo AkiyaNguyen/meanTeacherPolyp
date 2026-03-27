@@ -1,0 +1,106 @@
+device: cuda
+seed: 8888
+
+model:
+  stu_model:
+    name: ResNet34U_f
+  tea_model:
+    name: DepthFusion_ResNet34U_f_EMAEncoderOnly
+  num_channels_output: 1
+data:
+  root: ../polypdepth_dataset/
+  dataset: kvasir_SEG
+  data2_dir: TrainDataset
+  require_depth: true
+  image_dirname: images
+  mask_dirname: masks
+  depth_dirname: depth_v2
+  label_mode: percentage
+  labeled_perc: 11
+  labeled_bs: 2
+  batch_size: 4
+  shuffle: False
+  num_workers: 0
+  val_split_perc: 10 
+  test:
+    resize_width: 320
+    resize_height: 320
+    dataset_root: ../polypdepth_dataset/TestDataset/Kvasir 
+    image_dirname: images
+    mask_dirname: masks
+    depth_dirname: depth_v2
+    batch_size: 1
+
+total_iter: 50000
+
+optimizer:
+  lr: 0.005 #
+  weight_decay: 0.0001 #
+  momentum: 0.9
+
+scheduler:
+  power: 0.9
+
+Trainer:
+  consistency_rampup: 5000.0 #
+  consistency: 2 #
+  ema_decay: 0.999 
+  teacher_reliable_threshold: 0.65
+  student_reliable_threshold: 0.8
+  depth_learn_from_stu_weight: 0.3
+  # weight-decay: 0.0001
+Hook:
+  # FrequentSaveModel:
+  #   save_dir: save_dir/
+  #   save_every_epoch: 5
+  #   save_name: ema_encoder_only
+  # SmartSaveHook:
+  #   save_dir: save_dir/
+  #   max_save_epoch_interval: 50
+  #   save_name: ema_encoder_only
+  #   criteria: test_stu_Dice
+  MeanTeacherEvalHook:
+    eval_every_epoch: 2
+  ExtendMLFlowLoggerHook:
+  ## params for base mlflowloggerhook
+    dagshub_repo_owner: 'AkiyaNguyen'
+    dagshub_repo_name: 'polyp_segmentation'
+    experiment_name: 'depth_fusion_mt_train_signal'
+    dir_save_plot: 'plots'
+    logging_fields:
+    - '*loss*'
+    - '*weight*'
+    - '*Dice*'
+    - '*IoU*'
+    - '*ACC_overall*'
+  ## params for extendmlflowloggerhook
+    local_dir_save_ckpt: 'ckpt'
+    dagshub_dir_save_ckpt: 'ckpt'
+    max_save_epoch_interval: 50
+    criteria: test_stu_Dice
+    dagshub_destination_src_file: 'src_file'
+    list_src_dir_files: ['utils', 'test','models', 'data','DEMT_addDepthTrainSignal.py']
+    dagshub_meta_dir: 'meta'
+    run_name: 
+    meta_info:
+      kaggle_run_link: 
+      dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
+      description: 'first add confidence threshold so that student just learn from the confident depth teacher output; second add depth learn from student weight, forcing weak augment image forward through teacher and student so that teacher depth can learn from too confident pixels on student'
+  StopTrainAtEpoch:
+    stop_at_epoch: 1000
+
+score_criteria: test_stu_Dice
+
+hyperparameter_sweeping:
+  Trainer.teacher_reliable_threshold:
+    method: suggest_float
+    params:
+      name: teacher_reliable_threshold
+      low: 0.5
+      high: 0.8
+  Trainer.depth_learn_from_stu_weight:
+    method: suggest_float
+    params:
+      name: depth_learn_from_stu_weight
+      low: 0.2
+      high: 1.0
