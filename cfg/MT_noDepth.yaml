@@ -80,10 +80,14 @@ Hook:
 score_criteria: test_stu_Dice
 
 hyperparameter_sweeping:
-  Trainer.fea_sim_weight:
-    method: suggest_float
+  # Trainer.fea_sim_weight:
+  #   method: suggest_float
+  #   params:
+  #     name: fea_sim_weight
+  #     low: 0.0
+  #     high: 0.5
+  seed:
+    method: suggest_categorical
     params:
-      name: fea_sim_weight
-      low: 0.0
-      high: 0.5
-    
+      name: seed
+      choices: [7777, 6666]
