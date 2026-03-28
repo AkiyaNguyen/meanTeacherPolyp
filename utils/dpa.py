@@ -2,9 +2,12 @@ import torch
 import random
 
 def dpa(depth_map, images_s, pred_u, beta, t, T):
-    ## convert depth_map to 1 channels
-    weights = torch.tensor([0.299, 0.587, 0.114], device=depth_map.device, dtype=depth_map.dtype).view(1, 3, 1, 1)
-    grey_depth_map = (depth_map * weights).sum(dim=1, keepdim=True)  # (N, 1, H, W)
+    ## convert depth_map to 1 channel (support both 1-channel and 3-channel depth)
+    if depth_map.size(1) == 1:
+        grey_depth_map = depth_map
+    else:
+        weights = torch.tensor([0.299, 0.587, 0.114], device=depth_map.device, dtype=depth_map.dtype).view(1, 3, 1, 1)
+        grey_depth_map = (depth_map * weights).sum(dim=1, keepdim=True)  # (N, 1, H, W)
     
     def calculate_variance_hardness(grey_depth_map):
 

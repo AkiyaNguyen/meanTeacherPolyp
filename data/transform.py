@@ -76,11 +76,12 @@ class RandomZoom(object):
     def __call__(self, data):
         if random.random() < 0.5:
             for item in data.keys():
-                img_format = 'L' if item == 'label' else 'RGB'
-                img = np.array(data[item])
+                # Keep original mode to support both RGB and single-channel inputs (e.g. depth).
+                pil_img = data[item]
+                img = np.array(pil_img)
                 zoom = random.uniform(self.min, self.max)
                 img = clipped_zoom(img, zoom)
-                img = Image.fromarray(img.astype('uint8'), img_format)
+                img = Image.fromarray(img.astype('uint8'), mode=pil_img.mode)
                 data[item] = img
 
         return data

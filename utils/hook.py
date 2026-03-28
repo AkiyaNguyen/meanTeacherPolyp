@@ -2,6 +2,8 @@ from engine.Hook import MLFlowLoggerHook
 import os
 import copy
 import typing
+import json
+import tempfile
 import torch
 import mlflow
 from engine.Trainer import Trainer
@@ -43,8 +45,15 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
                 print(f"[WARN] Source file/dir not found, skipped: {dir_file}")
     def _log_meta_info(self) -> None:
         if self.meta_info:
-            # MLflow API: second arg is artifact_file (path under run artifacts), not artifact_path
-            mlflow.log_dict(self.meta_info, artifact_file=os.path.join(self.dagshub_meta_dir, 'meta_info.json'))
+            # Work around MLflow nested artifact_file temp-path issues on Windows.
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as temp_file:
+                json.dump(self.meta_info, temp_file, ensure_ascii=False, indent=2)
+                temp_path = temp_file.name
+            try:
+                mlflow.log_artifact(temp_path, artifact_path=self.dagshub_meta_dir)
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
             print(f"Logged meta info to MLflow!")
     def before_train(self) -> None:
         super().before_train()

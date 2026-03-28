@@ -109,3 +109,90 @@ class kvasir_SEG(Dataset):
 
     def __len__(self):
         return len(self.img_list)
+
+
+class DepthOnlyDataset(Dataset):
+    """Dataset for training with raw depth (npy files) only, without RGB images"""
+    def __init__(self, root, data2_dir, mode='train', transform=None, 
+                 list_name: List[str] | None = None, mask_dirname: str = 'masks', 
+                 depth_dirname: str = 'depth_npy'):
+        
+        super(DepthOnlyDataset, self).__init__()
+        self.data_path = os.path.join(root, data2_dir)
+        self.id_list = []
+        self.gt_list = []
+        self.depth_list = []
+        self.mode = mode
+
+        # Get mask files to determine the list of image IDs
+        mask_dir = os.path.join(self.data_path, mask_dirname)
+        mask_files = os.listdir(mask_dir) if list_name is None else list_name
+        mask_files = sorted(mask_files)
+
+        # Build file lists
+        for mask_id in mask_files:
+            img_id = mask_id.split('.')[0]  # Remove extension
+            self.id_list.append(img_id)
+            self.gt_list.append(os.path.join(self.data_path, mask_dirname, mask_id))
+            
+            # Resolve depth npy file
+            depth_file = os.path.join(self.data_path, depth_dirname, img_id + '.npy')
+            if not os.path.isfile(depth_file):
+                raise FileNotFoundError(f"Depth npy file not found: {depth_file}")
+            self.depth_list.append(depth_file)
+
+        # Default transforms
+        if transform is None:
+            if mode == 'train':
+                transform = transforms.Compose([
+                    Resize((320, 320)),
+                    RandomHorizontalFlip(p=0.5),
+                    RandomVerticalFlip(p=0.5),
+                    RandomRotation(degrees=90),
+                    RandomZoom(zoom=(0.9, 1.1)),
+                ])
+            elif mode == 'valid' or mode == 'test':
+                transform = transforms.Compose([
+                    Resize((320, 320)),
+                ])
+        self.transform = transform
+
+    def __getitem__(self, index):
+        gt_path = self.gt_list[index]
+        depth_path = self.depth_list[index]
+        
+        # Load mask
+        gt = Image.open(gt_path).convert('L')
+        
+        # Load depth from npy and convert to PIL Image (grayscale)
+        depth_array = np.load(depth_path)  # Shape: (H, W) or (H, W, 1)
+        if len(depth_array.shape) == 3:
+            depth_array = depth_array.squeeze(-1)
+        
+        # Normalize depth to 0-255 range for PIL
+        depth_min = depth_array.min()
+        depth_max = depth_array.max()
+        if depth_max > depth_min:
+            depth_array = ((depth_array - depth_min) / (depth_max - depth_min) * 255).astype(np.uint8)
+        else:
+            depth_array = np.zeros_like(depth_array, dtype=np.uint8)
+        
+        depth = Image.fromarray(depth_array, mode='L')
+        
+        # Create data dictionary with depth and mask
+        data = {'depth': depth, 'label': gt}
+        
+        # Apply transforms
+        if self.transform:
+            data = self.transform(data)
+            
+            if self.mode == 'train':
+                # Create augmented version
+                depth_aug = Image.fromarray(np.array(data['depth']).astype(np.uint8), mode='L')
+                if random.random() < 0.8:
+                    depth_aug = transforms.ColorJitter(0.2, 0.2, 0.2, 0.1)(depth_aug)
+                depth_aug = blur(depth_aug, p=0.5)
+                data['depth_s'] = depth_aug  # type: ignore
+        
+        data = ToTensor()(data)
+        return {**data, 'id': self.id_list[index]}

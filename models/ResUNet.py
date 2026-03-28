@@ -646,6 +646,122 @@ class DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
             return final_output
 
 
+class DepthOnlyEncoder(nn.Module):
+    """Encoder that accepts single-channel depth input and converts to 3-channel for ResNet"""
+    def __init__(self, num_classes, pretrained=True):
+        super(DepthOnlyEncoder, self).__init__()
+        
+        # First layer to convert 1-channel depth to 3-channel
+        self.depth_to_3channel = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
+        
+        # Load ResNet34 backbone with optional ImageNet initialization
+        resnet = models.resnet34(
+            weights=models.ResNet34_Weights.IMAGENET1K_V1 if pretrained else None
+        )
+        
+        # Encoder layers from ResNet
+        self.encoder1_conv = resnet.conv1
+        self.encoder1_bn = resnet.bn1
+        self.encoder1_relu = resnet.relu
+        self.maxpool = resnet.maxpool
+        self.encoder2 = resnet.layer1
+        self.encoder3 = resnet.layer2
+        self.encoder4 = resnet.layer3
+        self.encoder5 = resnet.layer4
+    
+    def forward(self, x):
+        # x shape: (B, 1, H, W)
+        x = self.depth_to_3channel(x)  # (B, 3, H, W)
+        
+        e1 = self.encoder1_conv(x)
+        e1 = self.encoder1_bn(e1)
+        e1 = self.encoder1_relu(e1)
+        e1_pool = self.maxpool(e1)
+        e2 = self.encoder2(e1_pool)
+        e3 = self.encoder3(e2)
+        e4 = self.encoder4(e3)
+        e5 = self.encoder5(e4)
+        
+        return e1, e2, e3, e4, e5
+
+
+class DepthOnlyResNet34U_f(nn.Module):
+    """ResUNet34 model trained on raw depth data only"""
+    def __init__(self, num_classes, dropout=0.1, pretrained=True):
+        super(DepthOnlyResNet34U_f, self).__init__()
+        
+        self.encoder1 = DepthOnlyEncoder(num_classes, pretrained=pretrained)
+        
+        # Decoder
+        self.decoder5 = DecoderBlock(in_channels=512, out_channels=512)
+        self.decoder4 = DecoderBlock(in_channels=512 + 256, out_channels=256)
+        self.decoder3 = DecoderBlock(in_channels=256 + 128, out_channels=128)
+        self.decoder2 = DecoderBlock(in_channels=128 + 64, out_channels=64)
+        self.decoder1 = DecoderBlock(in_channels=64 + 64, out_channels=64)
+        
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+    
+    def forward(self, x, fp=False):
+        # x shape: (B, 1, H, W) - raw depth
+        e1, e2, e3, e4, e5 = self.encoder1(x)
+        
+        d5 = self.decoder5(e5)
+        d4 = self.decoder4(torch.cat((d5, e4), dim=1))
+        d3 = self.decoder3(torch.cat((d4, e3), dim=1))
+        d2 = self.decoder2(torch.cat((d3, e2), dim=1))
+        d1 = self.decoder1(torch.cat((d2, e1), dim=1))
+        out1 = self.outconv(d1)
+        
+        if fp:
+            return torch.sigmoid(out1), e5
+        else:
+            return torch.sigmoid(out1)
+
+
+class DepthOnlyResNet34U_f_EMAEncoderOnly(nn.Module):
+    """
+    DepthOnly model with EMA (Exponential Moving Average) for semi-supervised learning.
+    Use this as teacher model for Mean Teacher training with depth-only data.
+    """
+    def __init__(self, num_classes, dropout=0.1, pretrained=True):
+        super(DepthOnlyResNet34U_f_EMAEncoderOnly, self).__init__()
+        
+        self.encoder1 = DepthOnlyEncoder(num_classes, pretrained=pretrained)
+        
+        # Decoder
+        self.decoder5 = DecoderBlock(in_channels=512, out_channels=512)
+        self.decoder4 = DecoderBlock(in_channels=512 + 256, out_channels=256)
+        self.decoder3 = DecoderBlock(in_channels=256 + 128, out_channels=128)
+        self.decoder2 = DecoderBlock(in_channels=128 + 64, out_channels=64)
+        self.decoder1 = DecoderBlock(in_channels=64 + 64, out_channels=64)
+        
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+    
+    def forward(self, x, fp=False):
+        # x shape: (B, 1, H, W) - raw depth
+        e1, e2, e3, e4, e5 = self.encoder1(x)
+        
+        d5 = self.decoder5(e5)
+        d4 = self.decoder4(torch.cat((d5, e4), dim=1))
+        d3 = self.decoder3(torch.cat((d4, e3), dim=1))
+        d2 = self.decoder2(torch.cat((d3, e2), dim=1))
+        d1 = self.decoder1(torch.cat((d2, e1), dim=1))
+        out1 = self.outconv(d1)
+        
+        if fp:
+            return torch.sigmoid(out1), e5
+        else:
+            return torch.sigmoid(out1)
+
+
 # class DepthFusion_ResNet34U_f_EMAEncoderOnly_Disentanglement(nn.Module):
 #     def __init__(self, num_classes, dropout=0.1):
 #         super().__init__()
