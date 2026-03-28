@@ -104,3 +104,9 @@ hyperparameter_sweeping:
       name: depth_learn_from_stu_weight
       low: 0.2
       high: 1.0
+  Trainer.student_reliable_threshold:
+    method: suggest_float
+    params:
+      name: student_reliable_threshold
+      low: 0.75
+      high: 1.0

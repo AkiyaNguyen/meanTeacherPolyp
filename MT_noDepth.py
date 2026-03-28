@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-from utils.loss import SoftmaxMSELoss, BCEDiceLoss
+from utils.loss import MSELoss, BCEDiceLoss
 
 
 
@@ -44,7 +44,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
         self.consistency = consistency
         # self.fea_sim_weight = fea_sim_weight
         self.class_criterion = BCEDiceLoss()
-        self.consistency_criterion = SoftmaxMSELoss()
+        self.consistency_criterion = MSELoss()
         # self.dpa_loss = BCEDiceLoss()
 
     def _get_current_consistency_weight(self, global_step):

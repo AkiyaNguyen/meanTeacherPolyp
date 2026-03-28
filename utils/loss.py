@@ -2,24 +2,27 @@
 Loss modules for segmentation and consistency training.
 
 Standard interface: pred and target/mask are probabilities in [0, 1]
-(same shape). SoftmaxMSELoss is for consistency (input/target can be logits or probs).
+(same shape). MSELoss is for consistency (input/target can be logits or probs).
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 
-
-## this is just mseloss 
-class SoftmaxMSELoss(nn.Module):
-    """MSE between logits (e.g. student vs teacher predictions)."""
+class MSELoss(nn.Module):
+    """MSE between probs (e.g. student vs teacher predictions)."""
 
     def __init__(self):
         super().__init__()
 
-    def forward(self, input_prob: torch.Tensor, target_prob: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_prob: torch.Tensor, target_prob: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if mask is None:
+            mask = torch.ones_like(input_prob)
+        
         num_classes = input_prob.size(1)
-        return F.mse_loss(input_prob, target_prob, reduction='mean') / num_classes
+        mse_loss = F.mse_loss(input_prob, target_prob, reduction='none') * mask.float()
+        return mse_loss.sum() / (mask.float().sum().clamp(min=1) * num_classes)
 
 
 class DiceLoss(nn.Module):
@@ -29,43 +32,78 @@ class DiceLoss(nn.Module):
         super().__init__()
         self.smooth = smooth
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if mask is None:
+            mask = torch.ones_like(pred)
+        
         size = pred.size(0)
-        intersection = (pred * target).sum()
-        union = pred.sum() + target.sum()
+        pred = pred.reshape(size, -1)
+        target = target.reshape(size, -1)
+        mask = mask.reshape(size, -1)
+
+        intersection = (pred * target * mask).sum(dim=1)
+        union = (pred * mask).sum(dim=1) + (target * mask).sum(dim=1)
         dice_score = (2 * intersection + self.smooth) / (union + self.smooth)
-        return 1 - dice_score / size
+        return 1 - dice_score.mean()
 
 
-class MaskBCELoss(nn.Module):
+class ConfidentBCELoss(nn.Module):
     """BCE restricted to confident (high/low) target pixels."""
 
     def __init__(self, threshold: float = 0.95):
         super().__init__()
         self.threshold = threshold
-        self.bce = nn.BCELoss(reduction='mean')
+        self.bce = nn.BCELoss(reduction='none')
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pred = pred.reshape(pred.shape[0], -1)
         target = target.reshape(target.shape[0], -1)
-        mask = ((target > self.threshold) | (target < 1 - self.threshold)).float()
-        pred = pred * mask
-        target = target * mask
-        return self.bce(pred, target)
 
+        mask = ((target > self.threshold) | (target < 1 - self.threshold)).float()
+        bce_loss = self.bce(pred, target) * mask
+        return bce_loss / mask.float().sum().clamp(min=1)
+
+class BCELoss(nn.Module):
+    """BCE loss."""
+    def __init__(self):
+        super().__init__()
+        self.bce = nn.BCELoss(reduction='none')
+    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if mask is None:
+            mask = torch.ones_like(pred)
+        
+        bce_loss = self.bce(pred, target) * mask
+        return bce_loss / mask.float().sum().clamp(min=1)
 
 class BCEDiceLoss(nn.Module):
     """Sum of masked BCE and Dice loss."""
 
     def __init__(self, bce_threshold: float = 0.95, dice_smooth: float = 1.0):
         super().__init__()
-        self.mask_bce = MaskBCELoss(threshold=bce_threshold)
+        self.mask_bce = ConfidentBCELoss(threshold=bce_threshold)
         self.dice = DiceLoss(smooth=dice_smooth)
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return self.mask_bce(pred, target) + self.dice(pred, target)
+        bce_loss = self.mask_bce(pred, target)
+        dice_loss = self.dice(pred, target)
+        return bce_loss + dice_loss
 
 
+class WeightedBCEDiceLoss(nn.Module):   
+    """Weighted BCE + weighted Dice loss."""
+    def __init__(self, bce_weight: float = 1.0, dice_weight: float = 1.0, dice_smooth: float = 1.0):
+        super().__init__()
+        self.bce_weight = bce_weight
+        self.dice_weight = dice_weight
+        self.mask_bce = BCELoss()
+        self.dice = DiceLoss(smooth=dice_smooth)
+    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if mask is None:
+            mask = torch.ones_like(pred)
+        bce_loss = self.mask_bce(pred, target, mask)
+        dice_loss = self.dice(pred, target, mask)
+        return self.bce_weight * bce_loss + self.dice_weight * dice_loss
+    
 class MinimizeFeatureSimilarityLoss(nn.Module):
     """Cosine-similarity-based loss between two feature maps (GAP then normalize)."""
 

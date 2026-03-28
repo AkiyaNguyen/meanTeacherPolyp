@@ -9,7 +9,7 @@
 
 # from utils.common import *
 # from utils.dpa import dpa
-# from utils.loss import SoftmaxMSELoss, BCEDiceLoss, MinimizeFeatureSimilarityLoss, MaximizeFeatureSimilarityLoss, StructureLoss, L2Loss
+# from utils.loss import MSELoss, BCEDiceLoss, MinimizeFeatureSimilarityLoss, MaximizeFeatureSimilarityLoss, StructureLoss, L2Loss
 # import torch
 # import torch.nn as nn
 # import optuna
@@ -47,7 +47,7 @@
 #         self.class_criterion = BCEDiceLoss()
 #         self.class_criterion_for_teacher = BCEDiceLoss()
 
-#         self.consistency_criterion = SoftmaxMSELoss()
+#         self.consistency_criterion = MSELoss()
 #         self.dpa_loss = BCEDiceLoss()
 #         self.feature_similarity_loss = MinimizeFeatureSimilarityLoss()
 #         self.feature_consistency_loss = MaximizeFeatureSimilarityLoss()

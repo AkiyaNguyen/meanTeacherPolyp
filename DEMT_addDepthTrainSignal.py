@@ -1,3 +1,4 @@
+
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
 from engine.Hook import LoggerHook, EvalHook, StopTrainAtEpoch
@@ -19,7 +20,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-from utils.loss import SoftmaxMSELoss, BCEDiceLoss
+from utils.loss import MSELoss, BCEDiceLoss
 
 
 class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
@@ -43,7 +44,7 @@ class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
         self.class_criterion = BCEDiceLoss()
-        self.consistency_criterion = SoftmaxMSELoss()
+        self.consistency_criterion = MSELoss()
         self.dpa_loss = BCEDiceLoss()
         self.teacher_confidence_filter = lambda x: ((x > teacher_reliable_threshold) | (x < 1 - teacher_reliable_threshold)).float()
         self.student_confidence_filter = lambda x: ((x > student_reliable_threshold) | (x < 1 - student_reliable_threshold)).float()
@@ -168,11 +169,8 @@ class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
             tea_unlabeled_rgbd_output = self.tea_model(unlabeled_img, unlabeled_depth)
             with torch.no_grad():
                 stu_unlabeled_rgbd_output = self.stu_model(unlabeled_img)
-
-            depth_learn_from_stu_loss = self.consistency_criterion(
-                self.student_confidence_filter(tea_unlabeled_rgbd_output),
-                self.student_confidence_filter(stu_unlabeled_rgbd_output)
-            )
+            tea_learn_from_stu_mask = self.student_confidence_filter(stu_unlabeled_rgbd_output) * (1 - self.teacher_confidence_filter(tea_unlabeled_rgbd_output))
+            depth_learn_from_stu_loss = self.consistency_criterion(tea_learn_from_stu_mask * tea_unlabeled_rgbd_output, tea_learn_from_stu_mask * stu_unlabeled_rgbd_output)
             total_loss = loss_tea_sup + depth_learn_from_stu_loss * self.depth_learn_from_stu_weight
 
             total_loss.backward()
@@ -182,6 +180,10 @@ class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
             phase2_info['teacher_labeled_loss'].append(loss_tea_sup.item())
             phase2_info['depth_learn_from_stu_loss'].append(depth_learn_from_stu_loss.item())
             phase2_info['loss'].append(total_loss.item())
+
+            for param in self.tea_model.parameters():
+                param.requires_grad_(True)
+
 
         if self.tea_scheduler is not None:
             self.tea_scheduler.step()
@@ -361,3 +363,15 @@ if __name__ == '__main__':
 #                     Hook.StopTrainAtEpoch.stop_at_epoch=300 \
 #                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/tay208/fork-of-try-mt-nodepth/edit' \
 #                     Hook.ExtendMLFlowLoggerHook.meta_info.version=14
+
+# !cd /kaggle/working/meanTeacherPolyp && \
+#     python DEMT_addDepthTrainSignal.py \
+#                     --optuna_trial_times 8 \
+#                     data.root=/kaggle/input/datasets/tay208/polypsegcandrl/root/kvasir_SEG data.data2_dir='Train' \
+#                     data.test.dataset_root=/kaggle/input/datasets/tay208/polypsegcandrl/root/kvasir_SEG/Test \
+#                     data.dataset=kvasir_SEG \
+#                     Hook.ExtendMLFlowLoggerHook.run_name='DEMT_addDepthTrainSignal' \
+#                     Hook.StopTrainAtEpoch.stop_at_epoch=300 \
+#                     Hook.ExtendMLFlowLoggerHook.experiment_name='DEMT_addDepthTrainSignal' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/tay208/fork-of-try-mt-nodepth/edit' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.version=2
