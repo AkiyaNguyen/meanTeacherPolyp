@@ -395,7 +395,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
     tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
 
-    depth_encoder_ckpt = cfg.get('Trainer.depth_encoder_ckpt', 'pretrained/encoder.pth')
+    trainer_cfg = cfg.get('Trainer', {})
+    depth_encoder_ckpt = trainer_cfg.get('depth_encoder_ckpt', 'pretrained/encoder.pth')
+    # depth_encoder_ckpt = cfg.get('Trainer.depth_encoder_ckpt', 'pretrained/encoder.pth')
     load_pretrained_resnet18_depth_encoder(tea_model, depth_encoder_ckpt)
     tea_model = tea_model.to(device)
 
