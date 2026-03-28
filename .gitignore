@@ -17,3 +17,7 @@ temp_requirement.txt
 try.py
 
 analysisse_gap/
+
+ckpt/
+
+pretrained/
