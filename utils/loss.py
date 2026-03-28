@@ -73,7 +73,7 @@ class BCELoss(nn.Module):
             mask = torch.ones_like(pred)
         
         bce_loss = self.bce(pred, target) * mask
-        return bce_loss / mask.float().sum().clamp(min=1)
+        return bce_loss.sum() / mask.float().sum().clamp(min=1)
 
 class BCEDiceLoss(nn.Module):
     """Sum of masked BCE and Dice loss."""
