@@ -20,17 +20,19 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-from utils.loss import MSELoss, BCEDiceLoss
+from utils.loss import MSELoss, BCEDiceLoss, WeightedBCEDiceLoss
 
 
 class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
     """
     Mean Teacher trainer for DepthFusion_ResNet34U_f_EMAEncoderOnly.
     Teacher returns a single tensor (no dict). EMA copies student encoder -> teacher rgb_encoder only.
+    Phase 1 masks consistency on teacher outputs using teacher_reliable_threshold; phase 2 pulls the
+    teacher toward rounded student targets where student_reliable_threshold agreement holds.
     """
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, tea_optimizer, scheduler, num_epochs, ema_alpha,
-                 consistency_rampup, consistency, tea_scheduler=None, teacher_reliable_threshold=0.65, 
-                 student_reliable_threshold=0.8, depth_learn_from_stu_weight=1.0, **kwargs) -> None:
+                 consistency_rampup, consistency, tea_scheduler=None, teacher_reliable_threshold=0.75,
+                 student_reliable_threshold=0.85, depth_learn_from_stu_weight=1.0, **kwargs) -> None:
         super().__init__(num_epochs, **kwargs)
         self.stu_model = stu_model
         self.tea_model = tea_model
@@ -43,11 +45,12 @@ class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
         self.labeled_bs = self.train_dataloader.batch_sampler.primary_batch_size
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
-        self.class_criterion = BCEDiceLoss()
+        self.class_criterion = WeightedBCEDiceLoss()
         self.consistency_criterion = MSELoss()
-        self.dpa_loss = BCEDiceLoss()
-        self.teacher_confidence_filter = lambda x: ((x > teacher_reliable_threshold) | (x < 1 - teacher_reliable_threshold)).float()
-        self.student_confidence_filter = lambda x: ((x > student_reliable_threshold) | (x < 1 - student_reliable_threshold)).float()
+        self.dpa_loss = WeightedBCEDiceLoss()
+        self.teacher_reliable_threshold = teacher_reliable_threshold
+        self.student_reliable_threshold = student_reliable_threshold
+
         self.depth_learn_from_stu_weight = depth_learn_from_stu_weight
 
     def _get_current_consistency_weight(self, global_step):
@@ -115,14 +118,16 @@ class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
             )
             pred_u_cutmix = self.stu_model(unlabeled_img_s_cutmix)
 
-            ## apply threshold to filter the unconfidence depth teacher output
-            loss_consist_rgbd_cutmix = self.dpa_loss(self.teacher_confidence_filter(pred_u_cutmix), \
-                self.teacher_confidence_filter(ema_pred_u_cutmix))
+            # Student consistency: only trust teacher pixels where p(foreground) is clearly high or low.
+            def teacher_confidence_mask(x):
+                t = self.teacher_reliable_threshold
+                return ((x > t) | (x < 1 - t)).float()
+
+            loss_consist_rgbd_cutmix = self.dpa_loss(pred_u_cutmix, ema_pred_u_cutmix, mask=teacher_confidence_mask(ema_pred_u_cutmix))
 
             loss_sup = self.class_criterion(labeled_stu, label)
-
-            loss_consist_rgbd = self.consistency_criterion(self.teacher_confidence_filter(unlabeled_stu), \
-                self.teacher_confidence_filter(tea_output))
+            
+            loss_consist_rgbd = self.consistency_criterion(unlabeled_stu, tea_output, mask=teacher_confidence_mask(tea_output))
             consistency_weight = self._get_current_consistency_weight(
                 global_step=batch_id + self.current_epoch * len(self.train_dataloader)
             )
@@ -169,8 +174,14 @@ class DepthFusion_MT_Trainer_addDepthTrainSignal(Trainer):
             tea_unlabeled_rgbd_output = self.tea_model(unlabeled_img, unlabeled_depth)
             with torch.no_grad():
                 stu_unlabeled_rgbd_output = self.stu_model(unlabeled_img)
-            tea_learn_from_stu_mask = self.student_confidence_filter(stu_unlabeled_rgbd_output) * (1 - self.teacher_confidence_filter(tea_unlabeled_rgbd_output))
-            depth_learn_from_stu_loss = self.consistency_criterion(tea_learn_from_stu_mask * tea_unlabeled_rgbd_output, tea_learn_from_stu_mask * stu_unlabeled_rgbd_output)
+            st = self.student_reliable_threshold
+            tea_learn_from_stu_mask = (
+                ((stu_unlabeled_rgbd_output > st) & (tea_unlabeled_rgbd_output > 0.5))
+                | ((stu_unlabeled_rgbd_output < 1 - st) & (tea_unlabeled_rgbd_output < 0.5))
+            ).float()
+
+            round_stu_target = (stu_unlabeled_rgbd_output > st).float()
+            depth_learn_from_stu_loss = self.consistency_criterion(tea_unlabeled_rgbd_output, round_stu_target, mask=tea_learn_from_stu_mask)
             total_loss = loss_tea_sup + depth_learn_from_stu_loss * self.depth_learn_from_stu_weight
 
             total_loss.backward()
@@ -272,8 +283,8 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
         consistency_rampup=float(cfg.get('Trainer.consistency_rampup')),
         consistency=float(cfg.get('Trainer.consistency')),
         tea_scheduler=tea_depth_branch_scheduler,
-        teacher_reliable_threshold=float(cfg.get('Trainer.teacher_reliable_threshold', 0.65)),
-        student_reliable_threshold=float(cfg.get('Trainer.student_reliable_threshold', 0.8)),
+        teacher_reliable_threshold=float(cfg.get('Trainer.teacher_reliable_threshold', 0.75)),
+        student_reliable_threshold=float(cfg.get('Trainer.student_reliable_threshold', 0.85)),
         depth_learn_from_stu_weight=float(cfg.get('Trainer.depth_learn_from_stu_weight', 0.3)),
     )
     if cfg.get('Trainer.load_ckpt_path', None) is not None:
