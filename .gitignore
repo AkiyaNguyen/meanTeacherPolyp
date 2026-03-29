@@ -21,3 +21,8 @@ analysisse_gap/
 ckpt/
 
 pretrained/
+
+**.png
+**.jpg
+**.jpeg
+logs/

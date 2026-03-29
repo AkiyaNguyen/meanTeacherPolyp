@@ -71,7 +71,7 @@ Hook:
     dagshub_destination_src_file: src_file
     list_src_dir_files: ['utils', 'test', 'models', 'data', 'emaEncoderOnlyTrain_imageAsDepth_res18.py']
     dagshub_meta_dir: meta
-    run_name: "monodepth_backbone_2st"
+    run_name: "monodepth_backbone_cbam_1st"
     meta_info:
       kaggle_run_link:
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
