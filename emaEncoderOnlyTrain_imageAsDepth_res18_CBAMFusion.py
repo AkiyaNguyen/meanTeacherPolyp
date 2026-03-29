@@ -195,6 +195,124 @@ def load_pretrained_resnet18_depth_encoder(tea_model: nn.Module, ckpt_path: str)
     )
 
 
+class ChannelAttention(nn.Module):
+    """CBAM channel attention using shared MLP for avg/max pooled descriptors."""
+    def __init__(self, channels: int, reduction: int = 16) -> None:
+        super().__init__()
+        hidden_channels = max(channels // reduction, 1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.shared_mlp = nn.Sequential(
+            nn.Conv2d(channels, hidden_channels, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden_channels, channels, kernel_size=1, bias=False),
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg_att = self.shared_mlp(self.avg_pool(x))
+        max_att = self.shared_mlp(self.max_pool(x))
+        att = self.sigmoid(avg_att + max_att)
+        return x * att
+
+
+class SpatialAttention(nn.Module):
+    """CBAM spatial attention over channel-compressed feature maps."""
+    def __init__(self, kernel_size: int = 7) -> None:
+        super().__init__()
+        if kernel_size != 7:
+            raise ValueError('SpatialAttention kernel_size must be 7 in this workflow')
+        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=3, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        max_map, _ = torch.max(x, dim=1, keepdim=True)
+        mean_map = torch.mean(x, dim=1, keepdim=True)
+        pooled = torch.cat([max_map, mean_map], dim=1)
+        att = self.sigmoid(self.conv(pooled))
+        return x * att
+
+
+class CBAMFusionBlock(nn.Module):
+    """
+    Fuse RGB and depth features with CBAM (CAM -> SAM) and 3x3 fusion conv.
+
+    Args:
+        in_channels: Channel count of one branch (RGB or depth).
+    """
+    def __init__(self, in_channels: int) -> None:
+        super().__init__()
+        total_channels = in_channels * 2
+        self.channel_attention = ChannelAttention(total_channels, reduction=16)
+        self.spatial_attention = SpatialAttention(kernel_size=7)
+        self.fusion_conv = nn.Sequential(
+            nn.Conv2d(total_channels, in_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, rgb_feat: torch.Tensor, depth_feat: torch.Tensor) -> torch.Tensor:
+        if rgb_feat.shape != depth_feat.shape:
+            raise ValueError(
+                f'rgb_feat and depth_feat must share the same shape, got {rgb_feat.shape} and {depth_feat.shape}'
+            )
+        fused = torch.cat([rgb_feat, depth_feat], dim=1)
+        fused = self.channel_attention(fused)
+        fused = self.spatial_attention(fused)
+        return self.fusion_conv(fused)
+
+
+class DepthFusion_ResNet34U_f_EMAEncoderOnly_CBAM(nn.Module):
+    """Teacher model variant using CBAMFusionBlock instead of SEFusionBlock."""
+    def __init__(self, num_classes: int, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.rgb_encoder = models.encoder(num_classes=None)
+        self.depth_encoder = models.encoder(num_classes=None)
+
+        self.fusion_block5 = CBAMFusionBlock(512)
+        self.fusion_block4 = CBAMFusionBlock(256)
+        self.fusion_block3 = CBAMFusionBlock(128)
+        self.fusion_block2 = CBAMFusionBlock(64)
+        self.fusion_block1 = CBAMFusionBlock(64)
+
+        self.decoder5 = models.DecoderBlock(512, 512)
+        self.decoder4 = models.DecoderBlock(512 + 256, 256)
+        self.decoder3 = models.DecoderBlock(256 + 128, 128)
+        self.decoder2 = models.DecoderBlock(128 + 64, 64)
+        self.decoder1 = models.DecoderBlock(64 + 64, 64)
+
+        self.outconv = nn.Sequential(
+            models.ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+
+    def forward(self, x: torch.Tensor, depth: torch.Tensor, fp: bool = False):
+        e1, e2, e3, e4, e5 = self.rgb_encoder(x)
+        e1_d, e2_d, e3_d, e4_d, e5_d = self.depth_encoder(depth)
+
+        f5 = self.fusion_block5(e5, e5_d)
+        f4 = self.fusion_block4(e4, e4_d)
+        f3 = self.fusion_block3(e3, e3_d)
+        f2 = self.fusion_block2(e2, e2_d)
+        f1 = self.fusion_block1(e1, e1_d)
+
+        d5 = self.decoder5(f5)
+        d4 = self.decoder4(torch.cat([d5, f4], dim=1))
+        d3 = self.decoder3(torch.cat([d4, f3], dim=1))
+        d2 = self.decoder2(torch.cat([d3, f2], dim=1))
+        d1 = self.decoder1(torch.cat([d2, f1], dim=1))
+
+        out = torch.sigmoid(self.outconv(d1))
+        if fp:
+            return out, f5
+        return out
+
+
+# Register local CBAM model into the imported models namespace for config-driven construction.
+setattr(models, 'DepthFusion_ResNet34U_f_EMAEncoderOnly_CBAM', DepthFusion_ResNet34U_f_EMAEncoderOnly_CBAM)
+
+
 class ImageAsDepth_MT_Trainer_EMAEncoderOnly(Trainer):
     """
     Mean Teacher trainer for image-as-depth mode:
@@ -410,7 +528,11 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     print(f'Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}')
 
     stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
-    tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
+
+    tea_model_name = cfg.get('model.tea_model.name')
+    if tea_model_name == 'DepthFusion_ResNet34U_f_EMAEncoderOnly':
+        tea_model_name = 'DepthFusion_ResNet34U_f_EMAEncoderOnly_CBAM'
+    tea_model = getattr(models, tea_model_name)(num_classes=cfg.get('model.num_channels_output')).to(device)
 
     trainer_cfg = cfg.get('Trainer', {})
     depth_encoder_ckpt = trainer_cfg.get('depth_encoder_ckpt')

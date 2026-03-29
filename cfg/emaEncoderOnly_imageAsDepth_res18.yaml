@@ -71,7 +71,7 @@ Hook:
     dagshub_destination_src_file: src_file
     list_src_dir_files: ['utils', 'test', 'models', 'data', 'emaEncoderOnlyTrain_imageAsDepth_res18.py']
     dagshub_meta_dir: meta
-    run_name: ""
+    run_name: "monodepth_backbone_2st"
     meta_info:
       kaggle_run_link:
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
@@ -81,9 +81,17 @@ Hook:
 score_criteria: test_stu_Dice
 
 hyperparameter_sweeping:
-  Trainer.fea_sim_weight:
-    method: suggest_float
-    params:
-      name: fea_sim_weight
-      low: 0.0
-      high: 0.5
+  optimizer:
+    lr:
+      method: suggest_float
+      params:
+        name: lr
+        low: 0.001
+        high: 0.01
+        log: True
+  # Trainer.fea_sim_weight:
+  #   method: suggest_float
+  #   params:
+  #     name: fea_sim_weight
+  #     low: 0.0
+  #     high: 0.5
