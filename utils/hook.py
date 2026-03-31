@@ -71,8 +71,7 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
             self.patience = 0
 
     def after_train(self) -> None:
-        ## log the last ckpt and the best ckpt
-        super().after_train()
+        ## log the last ckpt and the best ckpt then call the parent class
         if self.ckpt_info['ckpt'] is not None:
             ckpt_name = f"best_{self.experiment_name}_epoch{self.ckpt_info['epoch']}.pth"
             ckpt_save_dir = os.path.join(self.local_dir_save_ckpt, ckpt_name)
@@ -89,3 +88,5 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
         print(f"Last model saved at {last_ckpt_save_dir}")
         mlflow.log_artifact(last_ckpt_save_dir, artifact_path=self.dagshub_dir_save_ckpt)
         print(f"Last model logged to DagsHub MLflow!")
+
+        super().after_train()

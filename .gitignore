@@ -1,3 +1,4 @@
+
 **/__pycache__/
 
 mylib/
@@ -17,3 +18,5 @@ temp_requirement.txt
 try.py
 
 analysisse_gap/
+
+plots/

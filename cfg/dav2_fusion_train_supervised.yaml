@@ -1,22 +1,21 @@
-# Fully supervised ResNet34U_f with 10% labeled (same data split as MT for fair comparison)
+# Fully supervised DAv2Fusion with 10% labeled (same data split as MT for fair comparison)
 device: cuda
 seed: 8888
 
 model:
-  name: DepthFusion_ResNet34U_f_EMAEncoderOnly
+  name: DAv2Fusion_ResNet34U_f_EMAEncoderOnly
   num_channels_output: 1
 
 data:
   root: ../polypdepth_dataset/
   dataset: kvasir_SEG
   data2_dir: TrainDataset
-  require_depth: true
+  require_depth: False
   image_dirname: images
   mask_dirname: masks
-  depth_dirname: depth_v2
   label_mode: percentage
   labeled_perc: 11
-  labeled_bs: 2  # used by Mean Teacher configs; supervised depth script uses build_dataset_supervised (no two-stream sampler)
+  labeled_bs: 2
   batch_size: 4
   shuffle: true
   num_workers: 0
@@ -27,13 +26,12 @@ data:
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
     image_dirname: images
     mask_dirname: masks
-    depth_dirname: depth_v2
     batch_size: 1
 
 Trainer:
   class_criterion: WeightedBCEDiceLoss
 total_iter: 10000
-score_criteria: test_Dice   # metric returned by training() for Optuna / reporting
+score_criteria: test_Dice
 
 optimizer:
   lr: 0.005
@@ -42,47 +40,36 @@ optimizer:
 
 scheduler:
   power: 0.9
- 
+
 Hook:
   SupervisedEvalHook:
     eval_every_epoch: 2
   LoggerHook:
-    logger_file: logs/depth_rgb_train_supervised.json
+    logger_file: logs/dav2_fusion_train_supervised.json
   ExtendMLFlowLoggerHook:
-    # params for base mlflow logger
     dagshub_repo_owner: 'AkiyaNguyen'
     dagshub_repo_name: 'polyp_segmentation'
-    experiment_name: 'depth_rgb_train_supervised'
+    experiment_name: 'dav2_fusion_train_supervised'
     dir_save_plot: 'plots'
     logging_fields:
       - '*loss*'
       - '*Dice*'
       - '*IoU*'
       - '*ACC_overall*'
-    # params for extended logger
     local_dir_save_ckpt: 'ckpt'
     dagshub_dir_save_ckpt: 'ckpt'
     max_save_epoch_interval: 50
     criteria: test_Dice
     dagshub_destination_src_file: 'src_file'
-    list_src_dir_files: ['utils', 'test', 'models', 'data', 'run_supervised_for_depth_teacher.py']
+    list_src_dir_files: ['utils', 'test', 'models', 'data', 'run_supervised_for_DAv2Fusion.py']
     dagshub_meta_dir: 'meta'
     run_name:
     meta_info:
       kaggle_run_link:
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
-      description: 'Fully supervised baseline for depth teacher'
+      description: 'Fully supervised baseline for DAv2Fusion teacher model'
 
-# Key must be hyperparameter_sweeping (matches run_supervised_for_depth_teacher.training).
-# Optuna suggest_categorical requires params.name (trial param id) and params.choices.
 hyperparameter_sweeping:
-  # model.name:
-  #   method: suggest_categorical
-  #   params:
-  #     name: model_name
-  #     choices:
-  #       - DepthFusion_ResNet34U_f_EMAEncoderOnly
-  #       - DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly
   seed:
     method: suggest_categorical
     params:

@@ -16,7 +16,7 @@
 # from utils.build_dataset import build_dataset
 # import mlflow.pytorch
 # from test.eval import evaluate
-# from utils.loss import SoftmaxMSELoss
+# from utils.loss import MSELoss
 # from torch.optim.lr_scheduler import LambdaLR
 
 # from utils.ramps import sigmoid_rampup
@@ -43,7 +43,7 @@
 
 
 #         self.class_criterion = BCEDiceLoss()
-#         self.consistency_criterion = SoftmaxMSELoss()
+#         self.consistency_criterion = MSELoss()
 #         # self.save_model = False
 
 #     def _update_ema_variable(self, global_step):

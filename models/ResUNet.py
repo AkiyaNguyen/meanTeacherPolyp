@@ -3,6 +3,9 @@ import torch.nn as nn
 
 import torchvision.models as models
 import torch.nn.functional as F
+from transformers import AutoModelForDepthEstimation
+
+from torchinfo import summary
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
@@ -716,19 +719,193 @@ class DepthResidualSEFusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
 #         else:
 #             return final_output
 
+class DAv2Fusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
+    """
+    Teacher model replacing the ResNet-34 depth encoder with a frozen DAv2 ViT-S encoder.
+    
+    Key design decisions:
+    - DAv2 encoder is fully frozen; only projection layers + fusion blocks + decoder are trained.
+    - 4 intermediate ViT layers are extracted and projected to match ResNet-34 channel dims.
+    - e1 (160x160) is skipped for DAv2 fusion: upsampling from 22x22 by 7x is too aggressive.
+    - Inference uses RGB-only ResNet-34 student — no DAv2 at deployment time.
+    """
+    def __init__(self, num_classes, dropout=0.1, dav2_model_name="depth-anything/Depth-Anything-V2-Small-hf"):
+        super().__init__()
+        
+        # RGB encoder — EMA-updated during SSL training (same as current architecture)
+        self.rgb_encoder = encoder(num_classes=None)
+        
+        # DAv2 ViT-S backbone — frozen, used as privileged geometric feature extractor
+        
+        dav2 = AutoModelForDepthEstimation.from_pretrained(dav2_model_name)
+        self.dav2_encoder = dav2.backbone 
+        for p in self.dav2_encoder.parameters():
+            p.requires_grad = False
+        
+        # Project DAv2 patch tokens [B, 484, 384] to match ResNet-34 channel dims at each level.
+        # ViT-S hidden dim = 384. We map 4 intermediate layers to e2..e5 (skip e1, see docstring).
+        # Layer indices used: 3, 6, 9, 12 (evenly spaced across 12 transformer blocks).
+        dav2_dim = 384
+        self.proj5 = self._make_proj(dav2_dim, 512)  # layer 12 → matches e5 (512ch, 10x10)
+        self.proj4 = self._make_proj(dav2_dim, 256)  # layer  9 → matches e4 (256ch, 20x20)
+        self.proj3 = self._make_proj(dav2_dim, 128)  # layer  6 → matches e3 (128ch, 40x40)
+        self.proj2 = self._make_proj(dav2_dim, 64)   # layer  3 → matches e2 ( 64ch, 80x80)
+        
+        # SE-guided fusion blocks — same as DepthFusion_ResNet34U_f_EMAEncoderOnly
+        self.fusion_block5 = SEFusionBlock(512, 512, 512)
+        self.fusion_block4 = SEFusionBlock(256, 256, 256)
+        self.fusion_block3 = SEFusionBlock(128, 128, 128)
+        self.fusion_block2 = SEFusionBlock(64,  64,  64)
+        
+        # Standard U-Net decoder with skip connections
+        self.decoder5 = DecoderBlock(512, 512)
+        self.decoder4 = DecoderBlock(512 + 256, 256)
+        self.decoder3 = DecoderBlock(256 + 128, 128)
+        self.decoder2 = DecoderBlock(128 + 64,  64)
+        self.decoder1 = DecoderBlock(64  + 64,  64)  # e1 passed directly, no DAv2 fusion
+        
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, num_classes, 1),
+        )
+    
+    def _make_proj(self, in_dim, out_channels):
+        """
+        1x1 conv projection: maps DAv2 channel dim to ResNet-34 channel dim at a given level.
+        Spatial resizing is handled separately via F.interpolate in forward().
+        """
+        return nn.Sequential(
+            nn.Conv2d(in_dim, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+    
+    def _extract_dav2_features(self, x):
+        """
+        Extract 4 intermediate hidden states from frozen DAv2 ViT-S.
+        
+        Input : x        [B, 3, 320, 320]
+        Output: list of 4 tensors, each [B, 384, 22, 22]
+        
+        Spatial grid: floor(320 / 14) = 22  →  22x22 = 484 patch tokens
+        HuggingFace returns 13 hidden states (index 0 = patch embedding, 1..12 = transformer layers).
+        CLS token at position 0 is dropped before reshape.
+        """
+        with torch.no_grad():
+            hidden_states = self.dav2_encoder(
+                pixel_values=x,
+                output_hidden_states=True
+            ).hidden_states  # tuple of 13 x [B, 485, 384]
+        
+        feats = []
+        for idx in [3, 6, 9, 12]:
+            h = hidden_states[idx]       # [B, 485, 384]
+            h = h[:, 1:, :]             # drop CLS token → [B, 484, 384]
+            B, N, D = h.shape
+            h = h.permute(0, 2, 1)      # [B, 384, 484]
+            h = h.reshape(B, D, 22, 22) # [B, 384, 22, 22]
+            feats.append(h)
+        
+        # feats[0] = layer 3  (low-level, closer to edges/textures)
+        # feats[3] = layer 12 (high-level, semantic/geometric)
+        return feats
+    
+    def forward(self, x, fp=False):
+        # --- RGB encoder ---
+        e1, e2, e3, e4, e5 = self.rgb_encoder(x)
+        # e1: [B,  64, 160, 160]
+        # e2: [B,  64,  80,  80]
+        # e3: [B, 128,  40,  40]
+        # e4: [B, 256,  20,  20]
+        # e5: [B, 512,  10,  10]
+
+        # --- DAv2 feature extraction (no gradient) ---
+        dav2_feats = self._extract_dav2_features(x)
+        # each: [B, 384, 22, 22]
+
+        # --- Project + bilinear resize to match ResNet spatial dims ---
+        def proj_and_resize(proj_layer, feat, target_feat):
+            out = proj_layer(feat)  # [B, out_c, 22, 22]
+            return F.interpolate(
+                out, size=target_feat.shape[2:],
+                mode='bilinear', align_corners=False
+            )
+        
+        d2 = proj_and_resize(self.proj2, dav2_feats[0], e2)  # [B,  64,  80,  80]
+        d3 = proj_and_resize(self.proj3, dav2_feats[1], e3)  # [B, 128,  40,  40]
+        d4 = proj_and_resize(self.proj4, dav2_feats[2], e4)  # [B, 256,  20,  20]
+        d5 = proj_and_resize(self.proj5, dav2_feats[3], e5)  # [B, 512,  10,  10]
+
+        # --- SE-guided fusion at each encoder level ---
+        f5 = self.fusion_block5(e5, d5)
+        f4 = self.fusion_block4(e4, d4)
+        f3 = self.fusion_block3(e3, d3)
+        f2 = self.fusion_block2(e2, d2)
+        # e1 has no DAv2 counterpart — passed directly to decoder
+
+        # --- U-Net decoder with skip connections ---
+        dec5 = self.decoder5(f5)
+        dec4 = self.decoder4(torch.cat([dec5, f4], dim=1))
+        dec3 = self.decoder3(torch.cat([dec4, f3], dim=1))
+        dec2 = self.decoder2(torch.cat([dec3, f2], dim=1))
+        dec1 = self.decoder1(torch.cat([dec2, e1], dim=1))
+
+        out = self.outconv(dec1)
+        final_output = F.sigmoid(out)
+
+        if fp:
+            return final_output, f5
+        return final_output
 
 
 
 if __name__ == "__main__":
-    rgb = torch.randn(1, 3, 320, 320)
+    # rgb = torch.randn(1, 3, 320, 320)
+    # depth = torch.randn(1, 3, 320, 320)
+    # mask = torch.randn(1, 2, 320, 320)
+
+    #     # Training example (Mean Teacher)
+    # # teacher = Depth_W_SEFusion_ResNet34U_f(num_classes=1)
+
+    # # student = ResNet34U_f(num_classes=1)    
+
+    # teacher = Depth_W_ACM_ResNet34U_f_EMAEncoderOnly(num_classes=1)
+    # pred = teacher(rgb, depth)
+    # print(pred.shape)
+
+    
+    def count(model):
+        total     = sum(p.numel() for p in model.parameters())
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        frozen    = total - trainable
+        return total, trainable, frozen
+
+    def fmt(n):
+        return f"{n/1e6:.2f}M"
+
+    rgb   = torch.randn(1, 3, 320, 320)
     depth = torch.randn(1, 3, 320, 320)
-    mask = torch.randn(1, 2, 320, 320)
 
-        # Training example (Mean Teacher)
-    # teacher = Depth_W_SEFusion_ResNet34U_f(num_classes=1)
+    print("=" * 58)
+    print(f"{'Model':<12} {'Total':>10} {'Trainable':>12} {'Frozen':>10}")
+    print("=" * 58)
 
-    # student = ResNet34U_f(num_classes=1)    
+    models_to_test = [
+        ("A (RGB)",    ResNet34U_f(num_classes=1),                      (rgb,)),
+        ("B (Depth)",  DepthFusion_ResNet34U_f_EMAEncoderOnly(num_classes=1), (rgb, depth)),
+        ("C (DAv2)",   DAv2Fusion_ResNet34U_f_EMAEncoderOnly(num_classes=1),  (rgb,)),
+    ]
 
-    teacher = Depth_W_ACM_ResNet34U_f_EMAEncoderOnly(num_classes=1)
-    pred = teacher(rgb, depth)
-    print(pred.shape)
+    for name, model, inp in models_to_test:
+        total, trainable, frozen = count(model)
+        print(f"{name:<12} {fmt(total):>10} {fmt(trainable):>12} {fmt(frozen):>10}")
+
+    print()
+    print("=" * 58)
+    print("FLOPs — input 320x320, batch=1")
+    print("=" * 58)
+    for name, model, inp in models_to_test:
+        s = summary(model, input_data=inp, verbose=0)
+        macs_g = s.total_mult_adds / 1e9
+        print(f"{name:<12}  GMACs: {macs_g:.2f}")
