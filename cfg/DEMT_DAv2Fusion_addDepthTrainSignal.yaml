@@ -14,6 +14,7 @@ data:
   require_depth: False
   image_dirname: images
   mask_dirname: masks
+  depth_dirname: 
   label_mode: percentage
   labeled_perc: 11
   labeled_bs: 2
@@ -27,6 +28,7 @@ data:
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir
     image_dirname: images
     mask_dirname: masks
+    depth_dirname: 
     batch_size: 1
 
 total_iter: 50000
