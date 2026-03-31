@@ -22,7 +22,7 @@ def build_dataset(cfg):
         train_data = getattr(dataset, cfg.get('data.dataset'))(
             root=cfg.get('data.root'), data2_dir=cfg.get('data.data2_dir'),
             mode='train', require_depth=cfg.get('data.require_depth'), 
-            depth_dirname=cfg.get('data.depth_dirname'), list_name=None)
+            depth_dirname=cfg.get('data.depth_dirname', None), list_name=None)
         train_num = len(train_data)
         print(f"Total training images: {train_num}")
         if cfg.get('data.label_mode') == 'percentage':
@@ -55,7 +55,7 @@ def build_dataset(cfg):
             mode='train', require_depth=cfg.get('data.require_depth'),
             image_dirname=cfg.get('data.image_dirname'),
             mask_dirname=cfg.get('data.mask_dirname'),
-            depth_dirname=cfg.get('data.depth_dirname'),
+            depth_dirname=cfg.get('data.depth_dirname', None),
              list_name=train_files)
         if cfg.get('data.label_mode') == 'percentage':
             labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
@@ -75,7 +75,7 @@ def build_dataset(cfg):
             dataset_root=train_dataset_root,
             image_dirname=cfg.get('data.test.image_dirname'),
             mask_dirname=cfg.get('data.test.mask_dirname'),
-            depth_dirname=cfg.get('data.test.depth_dirname'),
+            depth_dirname=cfg.get('data.test.depth_dirname', None),
             transform=val_test_transform, list_name=val_files)
         val_dataloader = torch.utils.data.DataLoader(
             val_data, batch_size=cfg.get('data.test.batch_size'), shuffle=False, num_workers=0)
@@ -86,7 +86,7 @@ def build_dataset(cfg):
         dataset_root=cfg.get('data.test.dataset_root'),
         image_dirname=cfg.get('data.test.image_dirname'),
         mask_dirname=cfg.get('data.test.mask_dirname'),
-        depth_dirname=cfg.get('data.test.depth_dirname'),
+        depth_dirname=cfg.get('data.test.depth_dirname', None),
         transform=val_test_transform, list_name=None)
 
     test_dataloader = torch.utils.data.DataLoader(
