@@ -6,13 +6,15 @@ Style aligned with emaEncoderOnlyTrain.py (training(cfg, trial), Optuna, score_c
 
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, HookBase, MLFlowLoggerHook
+from engine.Hook import LoggerHook, EvalHook, HookBase
 import typing
 import argparse
 import copy
+from utils.hook import ExtendMLFlowLoggerHook
 from utils import loss
 from utils.common import *
 import torch
+import models
 from torch.optim.lr_scheduler import LambdaLR
 import optuna
 from utils.build_dataset_supervised import build_dataset_supervised
@@ -190,18 +192,30 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                      eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)), prefix='val_')
     hook_builder(SupervisedEvalHook, eval_data_loader=test_dataloader,
                  eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)), prefix='test_')
-    hook_builder(SmartSaveHook,
-                 save_dir=cfg.get('Hook.SmartSaveHook.save_dir', 'save_dir/'),
-                 max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval', 50)),
-                 save_name=cfg.get('Hook.SmartSaveHook.save_name', 'supervised_10pct'),
-                 criteria=cfg.get('Hook.SmartSaveHook.criteria', 'test_Dice'))
+    # hook_builder(SmartSaveHook,
+    #              save_dir=cfg.get('Hook.SmartSaveHook.save_dir', 'save_dir/'),
+    #              max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval', 50)),
+    #              save_name=cfg.get('Hook.SmartSaveHook.save_name', 'supervised_10pct'),
+    #              criteria=cfg.get('Hook.SmartSaveHook.criteria', 'test_Dice'))
     hook_builder(LoggerHook, logger_file=cfg.get('Hook.LoggerHook.logger_file', 'logs/supervised.json'))
-    hook_builder(MLFlowLoggerHook,
-                 dagshub_repo_owner=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_owner', '')),
-                 dagshub_repo_name=str(cfg.get('Hook.MLFlowLoggerHook.dagshub_repo_name', '')),
-                 experiment_name=cfg.get('Hook.MLFlowLoggerHook.experiment_name', 'supervised_10pct'),
-                 dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot', 'plots'),
-                 logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields', ['*loss*', '*Dice*', '*IoU*', '*ACC*'])))
+    hook_builder(
+        ExtendMLFlowLoggerHook,
+        local_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.local_dir_save_ckpt'),
+        dagshub_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_dir_save_ckpt'),
+        max_save_epoch_interval=int(cfg.get('Hook.ExtendMLFlowLoggerHook.max_save_epoch_interval')),
+        criteria=cfg.get('Hook.ExtendMLFlowLoggerHook.criteria'),
+        dagshub_destination_src_file=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_destination_src_file')),
+        list_src_dir_files=list(cfg.get('Hook.ExtendMLFlowLoggerHook.list_src_dir_files')),
+        dagshub_meta_dir=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_meta_dir')),
+        meta_info=dict(cfg.get('Hook.ExtendMLFlowLoggerHook.meta_info')),
+        dagshub_repo_owner=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_owner'),
+        dagshub_repo_name=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_name'),
+        experiment_name=str(cfg.get('Hook.ExtendMLFlowLoggerHook.experiment_name')),
+        dir_save_plot=cfg.get('Hook.ExtendMLFlowLoggerHook.dir_save_plot'),
+        logging_fields=list(cfg.get('Hook.ExtendMLFlowLoggerHook.logging_fields')),
+        run_name=cfg.get('Hook.ExtendMLFlowLoggerHook.run_name'),
+        cfg=cfg,
+    )
     if cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch', None) is not None:
         hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
@@ -239,3 +253,15 @@ if __name__ == '__main__':
             print(f"    {key}: {value}")
 
     print("Training completed!")
+
+# !cd /kaggle/working/meanTeacherPolyp && \
+#     python run_supervised_10pct.py \
+#                     --optuna_trial_times 4\
+#                     data.root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG data.data2_dir='Train' \
+#                     data.test.dataset_root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG/Test \
+#                     data.dataset=kvasir_SEG \
+#                     Hook.ExtendMLFlowLoggerHook.run_name='supervised_10pct' \
+#                     Hook.StopTrainAtEpoch.stop_at_epoch=200 \
+#                     Hook.ExtendMLFlowLoggerHook.experiment_name='supervised_10pct' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/akiyanguyen/kagglerunningtemplate/edit' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.version=3
