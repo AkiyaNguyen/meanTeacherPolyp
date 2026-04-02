@@ -265,3 +265,18 @@ if __name__ == '__main__':
 #                     Hook.ExtendMLFlowLoggerHook.experiment_name='supervised_10pct' \
 #                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/akiyanguyen/kagglerunningtemplate/edit' \
 #                     Hook.ExtendMLFlowLoggerHook.meta_info.version=3
+
+# !cd /kaggle/working/meanTeacherPolyp && \
+#     python run_supervised_10pct.py \
+#                     --optuna_trial_times 3\
+#                     data.root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG data.data2_dir='Train' \
+#                     data.test.dataset_root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG/Test \
+#                     data.dataset=kvasir_SEG \
+#                     Hook.ExtendMLFlowLoggerHook.run_name='supervised_100pct' \
+#                     Hook.StopTrainAtEpoch.stop_at_epoch=300 \
+#                     Hook.ExtendMLFlowLoggerHook.max_save_epoch_interval=100 \
+#                     Hook.data.val_split_perc=0 \ 
+#                     Hook.data.labeled_perc=100 \
+#                     Hook.ExtendMLFlowLoggerHook.experiment_name='supervised_100pct' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/akiyanguyen/kagglerunningtemplate/edit' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.version=3

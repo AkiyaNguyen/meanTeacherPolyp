@@ -15,7 +15,8 @@ data:
   image_dirname: images
   mask_dirname: masks
   depth_dirname: 
-  label_mode: percentage
+  label_mode: number
+  labeled_num: 90
   labeled_perc: 11
   labeled_bs: 2
   batch_size: 4

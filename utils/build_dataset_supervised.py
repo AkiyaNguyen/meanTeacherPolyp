@@ -19,10 +19,12 @@ from torchvision import transforms
 def _labeled_num(train_num, cfg):
     if cfg.get('data.label_mode') == 'percentage':
         n = round(train_num * cfg.get('data.labeled_perc') / 100)
-        if n % 2 != 0:
-            n -= 1
-    else:
+    elif cfg.get('data.label_mode') == 'number':
         n = cfg.get('data.labeled_num')
+    else:
+        raise ValueError("data.label_mode must be 'percentage' or 'number'")
+    if n % 2 != 0:
+        n -= 1
     return n
 
 

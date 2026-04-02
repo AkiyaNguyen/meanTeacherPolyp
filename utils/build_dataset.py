@@ -7,6 +7,20 @@ from data.batch_sampler import TwoStreamBatchSampler
 from test.eval import ImageFolderDataset
 from torchvision import transforms
 
+# Helper function to get the number of labeled images
+def _labeled_num(train_num, cfg):
+    if cfg.get('data.label_mode') == 'percentage':
+        n = round(train_num * cfg.get('data.labeled_perc') / 100)
+    elif cfg.get('data.label_mode') == 'number':
+        n = cfg.get('data.labeled_num')
+    else:
+        raise ValueError("data.label_mode must be 'percentage' or 'number'")
+    if n % 2 != 0:
+        n -= 1
+    return n
+
+
+
 def build_dataset(cfg):
     val_perc = int(cfg.get('data.val_split_perc', 0))
     resize_h = cfg.get('data.eval.resize_height', 320)
@@ -25,12 +39,7 @@ def build_dataset(cfg):
             depth_dirname=cfg.get('data.depth_dirname', None), list_name=None)
         train_num = len(train_data)
         print(f"Total training images: {train_num}")
-        if cfg.get('data.label_mode') == 'percentage':
-            labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
-            if labeled_num % 2 != 0:
-                labeled_num -= 1
-        else:
-            labeled_num = cfg.get('data.labeled_num')
+        labeled_num = _labeled_num(train_num, cfg)
         print(f"Labelled images: {labeled_num}")
         print(f"Unlabelled images: {train_num - labeled_num}")
         batch_sampler = TwoStreamBatchSampler(
@@ -57,12 +66,9 @@ def build_dataset(cfg):
             mask_dirname=cfg.get('data.mask_dirname'),
             depth_dirname=cfg.get('data.depth_dirname', None),
              list_name=train_files)
-        if cfg.get('data.label_mode') == 'percentage':
-            labeled_num = round(train_num * cfg.get('data.labeled_perc') / 100)
-            if labeled_num % 2 != 0:
-                labeled_num -= 1
-        else:
-            labeled_num = cfg.get('data.labeled_num')
+        labeled_num = _labeled_num(len(train_files), cfg)
+
+
         print(f"Total training images: {train_num}, labelled: {labeled_num} ({labeled_num / train_num * 100:.2f}%)")
         batch_sampler = TwoStreamBatchSampler(
             train_num, labeled_num,

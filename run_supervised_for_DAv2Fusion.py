@@ -231,3 +231,16 @@ if __name__ == '__main__':
         print("  Params:")
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
+
+
+# !cd /kaggle/working/meanTeacherPolyp && \
+#     python run_supervised_for_DAv2Fusion.py \
+#                     --optuna_trial_times 4\
+#                     data.root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG data.data2_dir='Train' \
+#                     data.test.dataset_root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG/Test \
+#                     data.dataset=kvasir_SEG \
+#                     Hook.ExtendMLFlowLoggerHook.run_name='DAv2Fusion_train_supervised' \
+#                     Hook.StopTrainAtEpoch.stop_at_epoch=200 \
+#                     Hook.ExtendMLFlowLoggerHook.experiment_name='DAv2Fusion_train_supervised' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/akiyanguyen/kagglerunningtemplate/edit' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.version=3
