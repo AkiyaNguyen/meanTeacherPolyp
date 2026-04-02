@@ -1,6 +1,6 @@
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, StopTrainAtEpoch
+from engine.Hook import LoggerHook, EvalHook
 from utils.hook import ExtendMLFlowLoggerHook
 import copy
 
@@ -260,9 +260,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
-    nEpoch = cfg.get('total_iter') // iters_per_epoch
-    total_iter = cfg.get('total_iter')
-    print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
+    nEpoch = int(cfg.get('nEpoch', 300))
+    total_iter = nEpoch * iters_per_epoch
+    print(f"nEpoch: {nEpoch} | Iters/epoch: {iters_per_epoch} => total train steps: {total_iter}")
 
     stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
     tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
@@ -317,7 +317,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                  cfg=cfg,
                  )
     hook_builder(LoggerHook, logger_file='logs/simple.json')
-    hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+    # hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
     trainer.train()
 
@@ -351,3 +351,15 @@ if __name__ == '__main__':
         print("  Params:")
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
+
+#  !cd /kaggle/working/meanTeacherPolyp && \
+#     python DEMT_DAv2Fusion_addDepthTrainSignal.py \
+#                     --optuna_trial_times 0\
+#                     data.root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG data.data2_dir='Train' \
+#                     data.test.dataset_root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG/Test \
+#                     data.dataset=kvasir_SEG \
+#                     Hook.ExtendMLFlowLoggerHook.run_name='DEMT_DAv2Fusion_addDepthTrainSignal' \
+#                     Hook.StopTrainAtEpoch.stop_at_epoch=200 \
+#                     Hook.ExtendMLFlowLoggerHook.experiment_name='DEMT_DAv2Fusion_addDepthTrainSignal' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/minhnguyenakiyahere/kagglerunningtemplate/edit?fromFork=1' \
+#                     Hook.ExtendMLFlowLoggerHook.meta_info.version=1

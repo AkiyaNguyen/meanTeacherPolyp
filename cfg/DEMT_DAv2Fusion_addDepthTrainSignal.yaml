@@ -15,14 +15,13 @@ data:
   image_dirname: images
   mask_dirname: masks
   depth_dirname: 
-  label_mode: number
-  labeled_num: 90
-  labeled_perc: 11
+  label_mode: percentage
+  labeled_perc: 10
   labeled_bs: 2
   batch_size: 4
   shuffle: false
   num_workers: 0
-  val_split_perc: 10
+  val_split_perc: 0
   test:
     resize_width: 320
     resize_height: 320
@@ -32,7 +31,7 @@ data:
     depth_dirname: 
     batch_size: 1
 
-total_iter: 50000
+nEpoch: 300
 
 optimizer:
   lr: 0.005
@@ -76,8 +75,8 @@ Hook:
       kaggle_run_link:
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
       description: 'Mean Teacher with DAv2-fusion teacher and addDepthTrainSignal training flow'
-  StopTrainAtEpoch:
-    stop_at_epoch: 1000
+  # StopTrainAtEpoch:
+  #   stop_at_epoch: 1000
 
 score_criteria: test_stu_Dice
 

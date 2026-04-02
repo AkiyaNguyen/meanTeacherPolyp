@@ -1,6 +1,6 @@
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, StopTrainAtEpoch
+from engine.Hook import LoggerHook, EvalHook
 from utils.hook import ExtendMLFlowLoggerHook
 import copy
 
@@ -225,9 +225,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
-    nEpoch = cfg.get('total_iter') // iters_per_epoch
-    total_iter = cfg.get('total_iter')
-    print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
+    nEpoch = int(cfg.get('nEpoch', 300))
+    total_iter = nEpoch * iters_per_epoch
+    print(f"nEpoch: {nEpoch} | Iters/epoch: {iters_per_epoch} => total train steps: {total_iter}")
 
     stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
     tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
@@ -291,7 +291,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     #              dir_save_plot=cfg.get('Hook.MLFlowLoggerHook.dir_save_plot'),
     #              logging_fields=list(cfg.get('Hook.MLFlowLoggerHook.logging_fields')))
 
-    hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+    # hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
     trainer.train()
 

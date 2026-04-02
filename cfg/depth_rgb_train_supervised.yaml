@@ -15,12 +15,12 @@ data:
   mask_dirname: masks
   depth_dirname: depth_v2
   label_mode: percentage
-  labeled_perc: 11
+  labeled_perc: 10
   labeled_bs: 2  # used by Mean Teacher configs; supervised depth script uses build_dataset_supervised (no two-stream sampler)
   batch_size: 4
   shuffle: true
   num_workers: 0
-  val_split_perc: 10
+  val_split_perc: 0
   test:
     resize_width: 320
     resize_height: 320
@@ -32,7 +32,7 @@ data:
 
 Trainer:
   class_criterion: WeightedBCEDiceLoss
-total_iter: 10000
+nEpoch: 300
 score_criteria: test_Dice   # metric returned by training() for Optuna / reporting
 
 optimizer:

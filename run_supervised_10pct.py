@@ -94,15 +94,15 @@ class SupervisedEvalHook(EvalHook):
             self.trainer._add_info(result)
 
 
-class StopTrainAtEpoch(HookBase):
-    def __init__(self, trainer: Trainer, stop_at_epoch: int) -> None:
-        super().__init__(trainer)
-        self.stop_at_epoch = stop_at_epoch
-
-    def after_train_epoch(self) -> None:
-        if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
-            self.trainer.stop_training()
-            print(f"Training stopped at epoch {self.stop_at_epoch}")
+# class StopTrainAtEpoch(HookBase):
+#     def __init__(self, trainer: Trainer, stop_at_epoch: int) -> None:
+#         super().__init__(trainer)
+#         self.stop_at_epoch = stop_at_epoch
+#
+#     def after_train_epoch(self) -> None:
+#         if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
+#             self.trainer.stop_training()
+#             print(f"Training stopped at epoch {self.stop_at_epoch}")
 
 
 class SmartSaveHook(HookBase):
@@ -162,9 +162,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
-    nEpoch = cfg.get('total_iter') // iters_per_epoch
-    total_iter = cfg.get('total_iter')
-    print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
+    nEpoch = int(cfg.get('nEpoch', 300))
+    total_iter = nEpoch * iters_per_epoch
+    print(f"nEpoch: {nEpoch} | Iters/epoch: {iters_per_epoch} => total train steps: {total_iter}")
 
     model_name = cfg.get('model.name', 'ResNet34U_f')
     num_classes = cfg.get('model.num_channels_output', 1)
@@ -216,8 +216,8 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
         run_name=cfg.get('Hook.ExtendMLFlowLoggerHook.run_name'),
         cfg=cfg,
     )
-    if cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch', None) is not None:
-        hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+    # if cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch', None) is not None:
+    #     hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
     trainer.train()
 
