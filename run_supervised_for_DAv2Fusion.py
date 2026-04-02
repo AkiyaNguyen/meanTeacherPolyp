@@ -1,28 +1,36 @@
-"""
-Fully supervised training for ResNet34U_f with only 10% labeled images.
-Same data split as Mean Teacher (first N% as labeled); no teacher, no consistency loss.
-Style aligned with emaEncoderOnlyTrain.py (training(cfg, trial), Optuna, score_criteria).
-"""
-
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, HookBase
-import typing
-import argparse
+from engine.Hook import LoggerHook, EvalHook
 import copy
 from utils.hook import ExtendMLFlowLoggerHook
-from utils import loss
-from utils.common import *
-import torch
-import models
-from torch.optim.lr_scheduler import LambdaLR
-import optuna
-from utils.build_dataset_supervised import build_dataset_supervised
+
 from test.eval import evaluate
+import typing
+import argparse
+
+from utils.common import *
+from utils import loss
+import torch
+import optuna
+import models
+
+from torch.optim.lr_scheduler import LambdaLR
+from utils.build_dataset_supervised import build_dataset_supervised
 
 
-class SupervisedTrainer(Trainer):
-    """Single-model fully supervised trainer (no teacher, no consistency)."""
+def _pred_for_loss_and_metrics(raw):
+    """Normalize model outputs to a single segmentation tensor."""
+    if isinstance(raw, dict):
+        raw = raw.get('rgb_depth')
+        if raw is None:
+            raise ValueError("Model returned a dict without 'rgb_depth'.")
+    if isinstance(raw, (list, tuple)):
+        raw = raw[0]
+    return raw
+
+
+class SupervisedTrainer_DAv2Fusion(Trainer):
+    """Fully supervised trainer for DAv2Fusion_ResNet34U_f_EMAEncoderOnly."""
 
     def __init__(self, model, train_dataloader, optimizer, scheduler, num_epochs, class_criterion, **kwargs) -> None:
         super().__init__(num_epochs, **kwargs)
@@ -35,35 +43,44 @@ class SupervisedTrainer(Trainer):
     def _start_train_mode(self) -> None:
         self.model.train()
 
+    def get_Trainer_ckpt(self) -> dict:
+        return {
+            'model': self.model.state_dict(),
+            'current_epoch': self.current_epoch + 1,
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict(),
+        }
+
+    def load_Trainer_ckpt(self, state_dict: dict) -> None:
+        self.model.load_state_dict(state_dict['model'])
+        self.current_epoch = state_dict['current_epoch']
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+        self.scheduler.load_state_dict(state_dict['scheduler'])
+
     def run_step_(self) -> None:
         self.model.train()
         device = next(self.model.parameters()).device
         step_info = {'loss': []}
 
-        for batch_id, data in enumerate(self.train_dataloader):
+        for _, data in enumerate(self.train_dataloader):
             self.optimizer.zero_grad()
-            img_s = data['image_s'].to(device)
-            label = data['label'].to(device)
+            img_s, label = data['image_s'], data['label']
+            img_s, label = img_s.to(device), label.to(device)
 
-            pred = self.model(img_s)
-            loss = self.class_criterion(pred, label)
-
-            loss.backward()
+            pred = _pred_for_loss_and_metrics(self.model(img_s))
+            loss_value = self.class_criterion(pred, label)
+            loss_value.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
-
-            step_info['loss'].append(loss.item())
             self.scheduler.step()
+
+            step_info['loss'].append(loss_value.item())
 
         self._add_info({k: np.mean(v) for k, v in step_info.items()})
 
-    def get_Trainer_ckpt(self) -> dict:
-        """Checkpoint for SmartSaveHook: single model state."""
-        return {'model': self.model.state_dict()}
 
-
-class SupervisedEvalHook(EvalHook):
-    """Eval hook for a single model (no teacher)."""
+class SupervisedEvalHook_DAv2Fusion(EvalHook):
+    """Eval hook for single supervised DAv2Fusion model."""
 
     def __init__(self, trainer: Trainer, eval_data_loader: torch.utils.data.DataLoader, eval_every_epoch: int, prefix: str = '') -> None:
         super().__init__(trainer, eval_data_loader)
@@ -81,9 +98,9 @@ class SupervisedEvalHook(EvalHook):
             for data in self.eval_data_loader:
                 img = data['image'].to(device)
                 gt = data['mask'].to(device)
-                output = self.trainer.model(img)
-                cur = evaluate(output, gt)
-                for key, value in cur.items():
+                output = _pred_for_loss_and_metrics(self.trainer.model(img))
+                cur_metrics = evaluate(output, gt)
+                for key, value in cur_metrics.items():
                     metrics[key].append(value)
 
         return {self.prefix + key: np.mean(value) for key, value in metrics.items()}
@@ -94,59 +111,9 @@ class SupervisedEvalHook(EvalHook):
             self.trainer._add_info(result)
 
 
-# class StopTrainAtEpoch(HookBase):
-#     def __init__(self, trainer: Trainer, stop_at_epoch: int) -> None:
-#         super().__init__(trainer)
-#         self.stop_at_epoch = stop_at_epoch
-#
-#     def after_train_epoch(self) -> None:
-#         if self.trainer.current_epoch + 1 >= self.stop_at_epoch:
-#             self.trainer.stop_training()
-#             print(f"Training stopped at epoch {self.stop_at_epoch}")
-
-
-class SmartSaveHook(HookBase):
-    """Save best checkpoint by criteria (single model); periodic and final save."""
-
-    def __init__(self, trainer: Trainer, save_dir: str, max_save_epoch_interval: int, save_name: str, criteria: str) -> None:
-        super().__init__(trainer)
-        self.save_dir = save_dir
-        os.makedirs(self.save_dir, exist_ok=True)
-        self.max_save_epoch_interval = max_save_epoch_interval
-        self.save_name = save_name
-        self.criteria = criteria
-        self.patience = 0
-        self.best_record = None
-        self.has_improved = False
-        self.ckpt = None
-
-    def after_train_epoch(self) -> None:
-        latest = self.trainer.info_storage.latest_info()
-        self.patience += 1
-        if self.criteria not in latest:
-            return
-        criteria_value = latest[self.criteria]
-        if self.best_record is None or criteria_value > self.best_record:
-            self.best_record = criteria_value
-            self.has_improved = True
-            self.ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
-        if self.patience >= self.max_save_epoch_interval and self.has_improved:
-            path = os.path.join(self.save_dir, f"{self.save_name}_epoch{self.trainer.current_epoch + 1}.pth")
-            torch.save(self.ckpt, path)
-            print(f"Model saved at {path}")
-            self.has_improved = False
-            self.patience = 0
-
-    def after_train(self) -> None:
-        if self.ckpt is not None:
-            path = os.path.join(self.save_dir, f"final_{self.save_name}.pth")
-            torch.save(self.ckpt, path)
-            print(f"Final model saved at {path}")
-
-
 def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     if trial is not None:
-        sweep_config = cfg.get('hyperparameter_sweeping', {})
+        sweep_config = cfg.get('hyperparameter_sweeping') or cfg.get('hyperparameters_sweeping', {})
         for key, settings in sweep_config.items():
             suggested_value = getattr(trial, settings['method'])(**settings['params'])
             cfg.set(key, suggested_value)
@@ -166,38 +133,51 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     total_iter = nEpoch * iters_per_epoch
     print(f"nEpoch: {nEpoch} | Iters/epoch: {iters_per_epoch} => total train steps: {total_iter}")
 
-    model_name = cfg.get('model.name', 'ResNet34U_f')
-    num_classes = cfg.get('model.num_channels_output', 1)
-    model = getattr(models, model_name)(num_classes=num_classes).to(device)
+    model = getattr(
+        models,
+        cfg.get('model.name', 'DAv2Fusion_ResNet34U_f_EMAEncoderOnly')
+    )(num_classes=cfg.get('model.num_channels_output', 1)).to(device)
 
     optimizer = torch.optim.SGD(
         model.parameters(),
         lr=cfg.get('optimizer.lr'),
         momentum=cfg.get('optimizer.momentum'),
-        weight_decay=cfg.get('optimizer.weight_decay')
+        weight_decay=cfg.get('optimizer.weight_decay'),
     )
     scheduler_power = float(cfg.get('scheduler.power', 0.9))
     scheduler = LambdaLR(
         optimizer,
-        lambda e: max(0.0, 1.0 - pow(min(e, total_iter) / total_iter, scheduler_power))
+        lambda e: max(0.0, 1.0 - pow(min(e, total_iter) / total_iter, scheduler_power)),
     )
 
-    class_criterion = getattr(loss, cfg.get('Trainer.class_criterion', 'BCEDiceLoss'))()
-
-    trainer = SupervisedTrainer(model, train_dataloader, optimizer, scheduler, nEpoch, class_criterion)
+    class_criterion = getattr(loss, cfg.get('Trainer.class_criterion', 'WeightedBCEDiceLoss'))()
+    trainer = SupervisedTrainer_DAv2Fusion(
+        model, train_dataloader, optimizer, scheduler, nEpoch, class_criterion
+    )
+    if cfg.get('Trainer.load_ckpt_path', None) is not None:
+        trainer.load_Trainer_ckpt(torch.load(cfg.get('Trainer.load_ckpt_path')))
+        print(f"Loaded checkpoint from {cfg.get('Trainer.load_ckpt_path')}")
+    else:
+        print("No checkpoint loaded")
 
     hook_builder = HookBuilder(cfg, trainer)
     if val_dataloader is not None:
-        hook_builder(SupervisedEvalHook, eval_data_loader=val_dataloader,
-                     eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)), prefix='val_')
-    hook_builder(SupervisedEvalHook, eval_data_loader=test_dataloader,
-                 eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)), prefix='test_')
-    # hook_builder(SmartSaveHook,
-    #              save_dir=cfg.get('Hook.SmartSaveHook.save_dir', 'save_dir/'),
-    #              max_save_epoch_interval=int(cfg.get('Hook.SmartSaveHook.max_save_epoch_interval', 50)),
-    #              save_name=cfg.get('Hook.SmartSaveHook.save_name', 'supervised_10pct'),
-    #              criteria=cfg.get('Hook.SmartSaveHook.criteria', 'test_Dice'))
-    hook_builder(LoggerHook, logger_file=cfg.get('Hook.LoggerHook.logger_file', 'logs/supervised.json'))
+        hook_builder(
+            SupervisedEvalHook_DAv2Fusion,
+            eval_data_loader=val_dataloader,
+            eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)),
+            prefix='val_',
+        )
+    hook_builder(
+        SupervisedEvalHook_DAv2Fusion,
+        eval_data_loader=test_dataloader,
+        eval_every_epoch=int(cfg.get('Hook.SupervisedEvalHook.eval_every_epoch', 2)),
+        prefix='test_',
+    )
+    hook_builder(
+        LoggerHook,
+        logger_file=cfg.get('Hook.LoggerHook.logger_file', 'logs/dav2_fusion_train_supervised.json'),
+    )
     hook_builder(
         ExtendMLFlowLoggerHook,
         local_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.local_dir_save_ckpt'),
@@ -229,9 +209,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Fully supervised ResNet34U_f with 10% labeled (same style as emaEncoderOnlyTrain).')
+    parser = argparse.ArgumentParser(description='Fully supervised DAv2Fusion training.')
     parser.add_argument('--optuna_trial_times', type=int, default=0, help='Optuna trials; 0 = no Optuna.')
-    parser.add_argument('--config', type=str, default='cfg/supervised_10pct.yaml', help='Path to YAML config')
+    parser.add_argument('--config', type=str, default='cfg/dav2_fusion_train_supervised.yaml', help='Path to YAML config')
     args, unknown = parser.parse_known_args()
     cfg = Config(config_file=args.config, cli_overrides=unknown)
 
@@ -252,31 +232,15 @@ if __name__ == '__main__':
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
 
-    print("Training completed!")
 
 # !cd /kaggle/working/meanTeacherPolyp && \
-#     python run_supervised_10pct.py \
+#     python run_supervised_for_DAv2Fusion.py \
 #                     --optuna_trial_times 4\
 #                     data.root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG data.data2_dir='Train' \
 #                     data.test.dataset_root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG/Test \
 #                     data.dataset=kvasir_SEG \
-#                     Hook.ExtendMLFlowLoggerHook.run_name='supervised_10pct' \
+#                     Hook.ExtendMLFlowLoggerHook.run_name='DAv2Fusion_train_supervised' \
 #                     Hook.StopTrainAtEpoch.stop_at_epoch=200 \
-#                     Hook.ExtendMLFlowLoggerHook.experiment_name='supervised_10pct' \
-#                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/akiyanguyen/kagglerunningtemplate/edit' \
-#                     Hook.ExtendMLFlowLoggerHook.meta_info.version=3
-
-# !cd /kaggle/working/meanTeacherPolyp && \
-#     python run_supervised_10pct.py \
-#                     --optuna_trial_times 3\
-#                     data.root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG data.data2_dir='Train' \
-#                     data.test.dataset_root=/kaggle/input/datasets/akiyanguyen/polypdataset/polypDataset_final1/kvasir_SEG/Test \
-#                     data.dataset=kvasir_SEG \
-#                     Hook.ExtendMLFlowLoggerHook.run_name='supervised_100pct' \
-#                     Hook.StopTrainAtEpoch.stop_at_epoch=300 \
-#                     Hook.ExtendMLFlowLoggerHook.max_save_epoch_interval=100 \
-#                     Hook.data.val_split_perc=0 \ 
-#                     Hook.data.labeled_perc=100 \
-#                     Hook.ExtendMLFlowLoggerHook.experiment_name='supervised_100pct' \
+#                     Hook.ExtendMLFlowLoggerHook.experiment_name='DAv2Fusion_train_supervised' \
 #                     Hook.ExtendMLFlowLoggerHook.meta_info.kaggle_run_link='https://www.kaggle.com/code/akiyanguyen/kagglerunningtemplate/edit' \
 #                     Hook.ExtendMLFlowLoggerHook.meta_info.version=3

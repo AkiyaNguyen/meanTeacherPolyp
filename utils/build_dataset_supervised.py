@@ -19,10 +19,12 @@ from torchvision import transforms
 def _labeled_num(train_num, cfg):
     if cfg.get('data.label_mode') == 'percentage':
         n = round(train_num * cfg.get('data.labeled_perc') / 100)
-        if n % 2 != 0:
-            n -= 1
-    else:
+    elif cfg.get('data.label_mode') == 'number':
         n = cfg.get('data.labeled_num')
+    else:
+        raise ValueError("data.label_mode must be 'percentage' or 'number'")
+    if n % 2 != 0:
+        n -= 1
     return n
 
 
@@ -47,7 +49,7 @@ def build_dataset_supervised(cfg):
             mode='train', require_depth=cfg.get('data.require_depth'), list_name=None,
             image_dirname=cfg.get('data.image_dirname'),
             mask_dirname=cfg.get('data.mask_dirname'),
-            depth_dirname=cfg.get('data.depth_dirname'),
+            depth_dirname=cfg.get('data.depth_dirname', None),
             )
         train_num = len(train_data)
         print(f"[supervised] Total training images: {train_num}")
@@ -76,7 +78,7 @@ def build_dataset_supervised(cfg):
             list_name=train_files,
             image_dirname=cfg.get('data.image_dirname'),
             mask_dirname=cfg.get('data.mask_dirname'),
-            depth_dirname=cfg.get('data.depth_dirname'),
+            depth_dirname=cfg.get('data.depth_dirname', None),
             )
         labeled_num = _labeled_num(train_num, cfg)
         print(f"[supervised] Labeled subset: {labeled_num} ({labeled_num / train_num * 100:.2f}% of train split)")
@@ -91,7 +93,7 @@ def build_dataset_supervised(cfg):
             dataset_root=train_dataset_root,
             image_dirname=cfg.get('data.test.image_dirname'), 
             mask_dirname=cfg.get('data.test.mask_dirname'), 
-            depth_dirname=cfg.get('data.test.depth_dirname'),
+            depth_dirname=cfg.get('data.test.depth_dirname', None),
             transform=val_test_transform, list_name=val_files)
         val_dataloader = torch.utils.data.DataLoader(
             val_data, batch_size=cfg.get('data.test.batch_size'), shuffle=False, num_workers=0)
@@ -102,7 +104,7 @@ def build_dataset_supervised(cfg):
         dataset_root=cfg.get('data.test.dataset_root'),
         image_dirname=cfg.get('data.test.image_dirname'),
         mask_dirname=cfg.get('data.test.mask_dirname'),
-        depth_dirname=str(cfg.get('data.test.depth_dirname')),
+        depth_dirname=cfg.get('data.test.depth_dirname', None),
         transform=val_test_transform, list_name=None)
 
     test_dataloader = torch.utils.data.DataLoader(

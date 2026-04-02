@@ -16,12 +16,12 @@ data:
   mask_dirname: masks
   depth_dirname: depth_v2
   label_mode: percentage
-  labeled_perc: 11
+  labeled_perc: 10
   labeled_bs: 2
   batch_size: 4
   shuffle: False
   num_workers: 0
-  val_split_perc: 10 
+  val_split_perc: 0
   test:
     resize_width: 320
     resize_height: 320
@@ -31,7 +31,7 @@ data:
     depth_dirname: depth_v2
     batch_size: 1
 
-total_iter: 50000
+nEpoch: 300
 
 optimizer:
   lr: 0.005 #
@@ -88,8 +88,8 @@ Hook:
       kaggle_run_link: 
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
       description: 'first add confidence threshold so that student just learn from the confident depth teacher output; second add depth learn from student weight, forcing weak augment image forward through teacher and student so that teacher depth can learn from too confident pixels on student'
-  StopTrainAtEpoch:
-    stop_at_epoch: 1000
+  # StopTrainAtEpoch:
+  #   stop_at_epoch: 1000
 
 score_criteria: test_stu_Dice
 

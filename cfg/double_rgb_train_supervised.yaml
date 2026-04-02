@@ -47,12 +47,12 @@ Hook:
   SupervisedEvalHook:
     eval_every_epoch: 2
   LoggerHook:
-    logger_file: logs/depth_rgb_train_supervised.json
+    logger_file: logs/double_rgb_train_supervised.json
   ExtendMLFlowLoggerHook:
     # params for base mlflow logger
     dagshub_repo_owner: 'AkiyaNguyen'
     dagshub_repo_name: 'polyp_segmentation'
-    experiment_name: 'depth_rgb_train_supervised'
+    experiment_name: 'double_rgb_train_supervised'
     dir_save_plot: 'plots'
     logging_fields:
       - '*loss*'
@@ -65,13 +65,13 @@ Hook:
     max_save_epoch_interval: 50
     criteria: test_Dice
     dagshub_destination_src_file: 'src_file'
-    list_src_dir_files: ['utils', 'test', 'models', 'data', 'run_supervised_for_depth_teacher.py']
+    list_src_dir_files: ['utils', 'test', 'models', 'data', 'run_supervised_for_double_RGB.py']
     dagshub_meta_dir: 'meta'
     run_name:
     meta_info:
       kaggle_run_link:
       dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
-      description: 'Fully supervised baseline for depth teacher'
+      description: 'Fully supervised baseline for double RGB'
 
 # Key must be hyperparameter_sweeping (matches run_supervised_for_depth_teacher.training).
 # Optuna suggest_categorical requires params.name (trial param id) and params.choices.
