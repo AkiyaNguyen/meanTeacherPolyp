@@ -27,7 +27,7 @@ def blur(img, p=0.5):
 # kvasir_SEG/ CVC-ClinicDB /kvasir_SEG + CVC-ClinicDB
 class kvasir_SEG(Dataset):
     def __init__(self, root, data2_dir, mode='train', transform=None, require_depth=True, 
-    list_name: List[str] | None = None, image_dirname: str = 'images', mask_dirname: str = 'masks', depth_dirname: str | None = 'depth-v1'):
+    list_name: List[str] | None = None, image_dirname: str = 'images', mask_dirname: str = 'masks', depth_dirname: str | None = 'depth_v2'):
 
         super(kvasir_SEG, self).__init__()
         self.data_path = os.path.join(root, data2_dir)

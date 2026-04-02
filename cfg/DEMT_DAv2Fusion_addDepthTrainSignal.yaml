@@ -81,21 +81,29 @@ Hook:
 score_criteria: test_stu_Dice
 
 hyperparameter_sweeping:
-  Trainer.teacher_reliable_threshold:
-    method: suggest_float
+  # Trainer.teacher_reliable_threshold:
+  #   method: suggest_float
+  #   params:
+  #     name: teacher_reliable_threshold
+  #     low: 0.5
+  #     high: 0.8
+  # Trainer.depth_learn_from_stu_weight:
+  #   method: suggest_float
+  #   params:
+  #     name: depth_learn_from_stu_weight
+  #     low: 0.2
+  #     high: 1.0
+  # Trainer.student_reliable_threshold:
+  #   method: suggest_float
+  #   params:
+  #     name: student_reliable_threshold
+  #     low: 0.75
+  #     high: 1.0
+  seed:
+    method: suggest_categorical
     params:
-      name: teacher_reliable_threshold
-      low: 0.5
-      high: 0.8
-  Trainer.depth_learn_from_stu_weight:
-    method: suggest_float
-    params:
-      name: depth_learn_from_stu_weight
-      low: 0.2
-      high: 1.0
-  Trainer.student_reliable_threshold:
-    method: suggest_float
-    params:
-      name: student_reliable_threshold
-      low: 0.75
-      high: 1.0
+      name: seed
+      choices:
+        - 1111
+        - 2222
+        - 3333
