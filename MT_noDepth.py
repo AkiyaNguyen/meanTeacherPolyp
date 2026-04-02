@@ -145,7 +145,9 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
             info['loss'].append(total_loss.item())
             self.scheduler.step()
 
-        self._add_info({f'{k}': np.mean(v) for k, v in info.items()})
+        out = {f'{k}': np.mean(v) for k, v in info.items()}
+        out.update(lr_logging_dict(self.stu_optimizer))
+        self._add_info(out)
 
         # # ========== PHASE 2: Train Teacher (depth/fusion/decoder), freeze rgb_encoder ==========
         # self.tea_model.train()
