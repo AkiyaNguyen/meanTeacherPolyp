@@ -79,7 +79,9 @@ class SupervisedTrainer_addDepthTrainSignal(Trainer):
 
             step_info['loss'].append(loss_value.item())
 
-        self._add_info({k: np.mean(v) for k, v in step_info.items()})
+        info = {k: np.mean(v) for k, v in step_info.items()}
+        info.update(lr_logging_dict(self.optimizer))
+        self._add_info(info)
 
 
 class SupervisedEvalHook_addDepthTrainSignal(EvalHook):

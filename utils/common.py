@@ -2,8 +2,31 @@ import torch
 import random
 import numpy as np
 import os
+from typing import Dict, Optional
+
 from engine.Config import Config
 import models
+
+
+def lr_logging_dict(optimizer: Optional[torch.optim.Optimizer], key: str = 'lr') -> Dict[str, float]:
+    """Current LR(s) from an optimizer for Trainer._add_info / loggers."""
+    if optimizer is None:
+        return {}
+    lrs = [float(pg['lr']) for pg in optimizer.param_groups]
+    if len(lrs) == 1:
+        return {key: lrs[0]}
+    return {f'{key}_g{i}': lr for i, lr in enumerate(lrs)}
+
+
+def lr_logging_dict_mean_teacher(
+    stu_optimizer: torch.optim.Optimizer,
+    tea_optimizer: Optional[torch.optim.Optimizer],
+) -> Dict[str, float]:
+    """Student + teacher learning rates (typical two-optimizer Mean Teacher setup)."""
+    d = lr_logging_dict(stu_optimizer, 'lr')
+    if tea_optimizer is not None:
+        d.update(lr_logging_dict(tea_optimizer, 'tea_lr'))
+    return d
 
 
 def generate_model(cfg: Config, ema: bool = False):

@@ -59,6 +59,8 @@ Hook:
     dir_save_plot: 'plots'
     logging_fields:
     - loss
+    - lr
+    - tea_lr
     - labeled_loss
     - unlabeled_loss
     - consistency_weight

@@ -60,6 +60,7 @@ Hook:
     dir_save_plot: 'plots'
     logging_fields:
       - '*loss*'
+      - '*lr*'
       - '*Dice*'
       - '*IoU*'
       - '*ACC_overall*'

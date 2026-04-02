@@ -144,7 +144,9 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             phase1_info['loss'].append(total_loss.item())
             self.scheduler.step()
 
-        self._add_info({f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()})
+        p1 = {f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()}
+        p1.update(lr_logging_dict(self.stu_optimizer, 'lr'))
+        self._add_info(p1)
 
         # ========== PHASE 2: Train Teacher (depth/fusion/decoder), freeze rgb_encoder ==========
         for batch_id, data in enumerate(self.train_dataloader):
@@ -176,7 +178,9 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
         if self.tea_scheduler is not None:
             self.tea_scheduler.step()
-        self._add_info({f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()})
+        p2 = {f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()}
+        p2.update(lr_logging_dict_mean_teacher(self.stu_optimizer, self.tea_optimizer))
+        self._add_info(p2)
 
 
 class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
