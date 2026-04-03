@@ -92,4 +92,3 @@ hyperparameter_sweeping:
       choices:
         - 1111
         - 2222
-        - 3333

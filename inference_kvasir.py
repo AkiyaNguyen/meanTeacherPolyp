@@ -46,7 +46,7 @@ def parse_args():
         "--dataset_root",
         type=str,
         default="../polypdepth_dataset/TestDataset/Kvasir",
-        help="Kvasir test dataset root (images, masks, depth-v1 dirs)",
+        help="Kvasir test dataset root (images, masks, depth_v2 dirs)",
     )
     p.add_argument(
         "--config",
@@ -91,7 +91,7 @@ def main():
     resize_w = cfg.get("data.test.resize_width", 320)
     image_dir = cfg.get("data.test.image_dirname", "images")
     mask_dir = cfg.get("data.test.mask_dirname", "masks")
-    depth_dir = str(cfg.get("data.test.depth_dirname", "depth-v1"))
+    depth_dir = str(cfg.get("data.test.depth_dirname", "depth_v2"))
 
     val_test_transform = transforms.Compose([
         Resize((resize_w, resize_h)),
