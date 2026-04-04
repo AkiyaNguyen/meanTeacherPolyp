@@ -852,10 +852,10 @@ class DAv2Fusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
         dec1 = self.decoder1(torch.cat([dec2, e1], dim=1))
 
         out = self.outconv(dec1)
-        final_output = F.sigmoid(out)
+        final_output = torch.sigmoid(out)
 
         if fp:
-            return final_output, f5
+            return final_output, dec1
         return final_output
 
 

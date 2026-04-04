@@ -87,7 +87,7 @@ Hook:
     run_name: 
     meta_info:
       kaggle_run_link: 
-      dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
+      dataset_link: https://www.kaggle.com/datasets/akiyanguyen/polypdataset
       description: 'first add confidence threshold so that student just learn from the confident depth teacher output; second add depth learn from student weight, forcing weak augment image forward through teacher and student so that teacher depth can learn from too confident pixels on student'
   # StopTrainAtEpoch:
   #   stop_at_epoch: 1000

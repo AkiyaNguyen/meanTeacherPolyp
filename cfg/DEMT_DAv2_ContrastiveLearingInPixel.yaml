@@ -76,7 +76,7 @@ Hook:
     run_name:
     meta_info:
       kaggle_run_link:
-      dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
+      dataset_link: https://www.kaggle.com/datasets/akiyanguyen/polypdataset
       description: 'Mean Teacher with DAv2-fusion teacher and contrastive learning in pixel level feature training flow'
   # StopTrainAtEpoch:
   #   stop_at_epoch: 1000

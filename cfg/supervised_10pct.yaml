@@ -74,7 +74,7 @@ Hook:
     run_name:
     meta_info:
       kaggle_run_link:
-      dataset_link: https://www.kaggle.com/datasets/tay208/polypsegcandrl
+      dataset_link: https://www.kaggle.com/datasets/akiyanguyen/polypdataset
       description: 'Fully supervised 10pct baseline with ExtendMLFlowLoggerHook'
 
 hyperparameter_sweeping:
