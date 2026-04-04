@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-from utils.loss import MSELoss, WeightedBCEDiceLoss
+from utils.loss import MSELoss, WeightedBCEDiceLoss, BCELoss
 
 
 class DAv2Fusion_MT_Trainer_addDepthTrainSignal(Trainer):
@@ -45,6 +45,7 @@ class DAv2Fusion_MT_Trainer_addDepthTrainSignal(Trainer):
         self.consistency = consistency
         self.class_criterion = WeightedBCEDiceLoss()
         self.consistency_criterion = MSELoss()
+        self.tea_learn_from_stu_criterion = BCELoss()
         self.dpa_loss = WeightedBCEDiceLoss()
         self.teacher_reliable_threshold = teacher_reliable_threshold
         self.student_reliable_threshold = student_reliable_threshold
@@ -179,7 +180,7 @@ class DAv2Fusion_MT_Trainer_addDepthTrainSignal(Trainer):
             ).float()
 
             round_stu_target = (stu_unlabeled_rgbd_output > st).float()
-            depth_learn_from_stu_loss = self.consistency_criterion(tea_unlabeled_rgbd_output, round_stu_target, mask=tea_learn_from_stu_mask)
+            depth_learn_from_stu_loss = self.tea_learn_from_stu_criterion(tea_unlabeled_rgbd_output, round_stu_target, mask=tea_learn_from_stu_mask)
             total_loss = loss_tea_sup + depth_learn_from_stu_loss * self.depth_learn_from_stu_weight
 
             total_loss.backward()
