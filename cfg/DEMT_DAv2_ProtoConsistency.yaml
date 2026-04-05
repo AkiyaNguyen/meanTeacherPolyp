@@ -43,13 +43,16 @@ scheduler:
 
 Trainer:
   consistency_rampup: 5000.0
-  contrastive_rampup: 5000.0
   consistency: 2
   ema_decay: 0.999
   teacher_reliable_threshold: 0.75
   student_reliable_threshold: 0.85
   depth_learn_from_stu_weight: 0.3
-  contrastive_weight: 1.0
+  prototype_momentum: 0.99
+  prototype_warmup_iter: 3000.0
+  prototype_rampup_length: 2000.0
+  prototype_balance_weight: 0.5
+  prototype_loss_weight: 1.0
 
 Hook:
   MeanTeacherEvalHook:
@@ -57,7 +60,7 @@ Hook:
   ExtendMLFlowLoggerHook:
     dagshub_repo_owner: 'AkiyaNguyen'
     dagshub_repo_name: 'polyp_segmentation'
-    experiment_name: 'dav2_fusion_mt_contrastive_learning_in_pixel'
+    experiment_name: 'dav2_fusion_mt_prototype_consistency'
     dir_save_plot: 'plots'
     logging_fields:
       - '*loss*'
@@ -71,24 +74,22 @@ Hook:
     max_save_epoch_interval: 50
     criteria: test_stu_Dice
     dagshub_destination_src_file: 'src_file'
-    list_src_dir_files: ['utils', 'test', 'models', 'data', 'DEMT_DAv2_ContrastiveLearingInPixel.py']
+    list_src_dir_files: ['utils', 'test', 'models', 'data', 'DEMT_DAv2_ProtoConsistency.py']
     dagshub_meta_dir: 'meta'
     run_name:
     meta_info:
       kaggle_run_link:
       dataset_link: https://www.kaggle.com/datasets/akiyanguyen/polypdataset
-      description: 'Mean Teacher with DAv2-fusion teacher and contrastive learning in pixel level feature training flow'
-  # StopTrainAtEpoch:
-  #   stop_at_epoch: 1000
+      description: 'Mean Teacher with DAv2-fusion teacher and prototype consistency training flow'
 
 score_criteria: test_stu_Dice
 
 hyperparameter_sweeping:
-  Trainer.contrastive_weight:
+  prototype_loss_weight:
     method: suggest_categorical
     params:
-      name: contrastive_weight
+      name: prototype_loss_weight
       choices:
-        - 0.5 ## better than 1.5
+        - 0.5
         - 1.0
         - 1.5

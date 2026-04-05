@@ -33,3 +33,5 @@ temp_requirements.txt
 view_image_mask_depth.py
 visualize_demt_adddepth_predictions.py
 inference_kvasir.py
+
+note.md

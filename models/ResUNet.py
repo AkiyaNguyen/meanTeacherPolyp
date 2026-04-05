@@ -7,6 +7,9 @@ from transformers import AutoModelForDepthEstimation
 
 from torchinfo import summary
 
+import numpy as np
+import math
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(ConvBlock, self).__init__()
@@ -804,7 +807,8 @@ class DAv2Fusion_ResNet34U_f_EMAEncoderOnly(nn.Module):
             h = h[:, 1:, :]             # drop CLS token → [B, 484, 384]
             B, N, D = h.shape
             h = h.permute(0, 2, 1)      # [B, 384, 484]
-            h = h.reshape(B, D, 22, 22) # [B, 384, 22, 22]
+            side = int(np.sqrt(N))
+            h = h.reshape(B, D, side, side) # [B, 384, side, side]
             feats.append(h)
         
         # feats[0] = layer 3  (low-level, closer to edges/textures)
