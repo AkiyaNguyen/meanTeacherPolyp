@@ -516,22 +516,22 @@ def training_distill(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = N
     hook_builder(MeanTeacherEvalHook_DAv2_addDepthTrainSignal, eval_data_loader=test_dataloader,
                  eval_every_epoch=int(cfg.get('Hook.MeanTeacherEvalHook.eval_every_epoch')), prefix='test_')
 
-    # hook_builder(ExtendMLFlowLoggerHook, local_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.local_dir_save_ckpt'),
-    #              dagshub_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_dir_save_ckpt'),
-    #              max_save_epoch_interval=int(cfg.get('Hook.ExtendMLFlowLoggerHook.max_save_epoch_interval')),
-    #              criteria=cfg.get('Hook.ExtendMLFlowLoggerHook.criteria'),
-    #              dagshub_destination_src_file=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_destination_src_file')),
-    #              list_src_dir_files=list(cfg.get('Hook.ExtendMLFlowLoggerHook.list_src_dir_files')),
-    #              dagshub_meta_dir=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_meta_dir')),
-    #              meta_info=dict(cfg.get('Hook.ExtendMLFlowLoggerHook.meta_info')),
-    #              dagshub_repo_owner=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_owner'),
-    #              dagshub_repo_name=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_name'),
-    #              experiment_name=str(cfg.get('Hook.ExtendMLFlowLoggerHook.experiment_name')),
-    #              dir_save_plot=cfg.get('Hook.ExtendMLFlowLoggerHook.dir_save_plot'),
-    #              logging_fields=list(cfg.get('Hook.ExtendMLFlowLoggerHook.logging_fields')),
-    #              run_name=cfg.get('Hook.ExtendMLFlowLoggerHook.run_name'),
-    #              cfg=cfg,
-    #              )
+    hook_builder(ExtendMLFlowLoggerHook, local_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.local_dir_save_ckpt'),
+                 dagshub_dir_save_ckpt=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_dir_save_ckpt'),
+                 max_save_epoch_interval=int(cfg.get('Hook.ExtendMLFlowLoggerHook.max_save_epoch_interval')),
+                 criteria=cfg.get('Hook.ExtendMLFlowLoggerHook.criteria'),
+                 dagshub_destination_src_file=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_destination_src_file')),
+                 list_src_dir_files=list(cfg.get('Hook.ExtendMLFlowLoggerHook.list_src_dir_files')),
+                 dagshub_meta_dir=str(cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_meta_dir')),
+                 meta_info=dict(cfg.get('Hook.ExtendMLFlowLoggerHook.meta_info')),
+                 dagshub_repo_owner=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_owner'),
+                 dagshub_repo_name=cfg.get('Hook.ExtendMLFlowLoggerHook.dagshub_repo_name'),
+                 experiment_name=str(cfg.get('Hook.ExtendMLFlowLoggerHook.experiment_name')),
+                 dir_save_plot=cfg.get('Hook.ExtendMLFlowLoggerHook.dir_save_plot'),
+                 logging_fields=list(cfg.get('Hook.ExtendMLFlowLoggerHook.logging_fields')),
+                 run_name=cfg.get('Hook.ExtendMLFlowLoggerHook.run_name'),
+                 cfg=cfg,
+                 )
     hook_builder(LoggerHook, logger_file='logs/simple.json')
     # hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
