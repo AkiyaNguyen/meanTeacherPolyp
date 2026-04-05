@@ -203,9 +203,9 @@ class DEMT_DAv2_ProtoConsistency(Trainer):
             unlabeled_img_s = img_s[self.labeled_bs:]
             label = label[:self.labeled_bs]
 
-            stu_pred = self.stu_model(img_s, fp=True)
-            labeled_stu, labeled_stu_features = stu_pred[:self.labeled_bs]
-            unlabeled_stu, unlabeled_stu_features = stu_pred[self.labeled_bs:]
+            stu_pred, stu_features = self.stu_model(img_s, fp=True)
+            labeled_stu, labeled_stu_feature = stu_pred[:self.labeled_bs], stu_features[:self.labeled_bs]
+            unlabeled_stu, unlabeled_stu_feature = stu_pred[self.labeled_bs:], stu_features[self.labeled_bs:]
 
             with torch.no_grad():
                 tea_output = self.tea_model(img)
@@ -213,7 +213,7 @@ class DEMT_DAv2_ProtoConsistency(Trainer):
                 tea_unlabeled_output = tea_output[self.labeled_bs:]
 
             prototype_loss, attraction_loss, repulsion_loss = self._get_prototype_loss(
-                global_step, labeled_stu_features, unlabeled_stu_features, label, unlabeled_stu
+                global_step, labeled_stu_feature, unlabeled_stu_feature, label, unlabeled_stu
             )
 
             unlabeled_img_s_cutmix, ema_pred_u_cutmix = apa_cutmix(
