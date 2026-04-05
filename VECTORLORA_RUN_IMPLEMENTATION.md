@@ -1,11 +1,15 @@
-# VectorLoRA Run Implementation Details
+# VectorLoRA and Distill Run Implementation Details
 
 ## 1. Goal
-This run adapts Vector-LoRA to the DAv2 backbone used inside the teacher model `DAv2Fusion_ResNet34U_f_EMAEncoderOnly`, while keeping the original Mean Teacher phase logic intact.
+This setup contains two related runs:
+- VectorLoRA run: adapt LoRA into DAv2 attention while keeping Mean Teacher training flow.
+- Distill run: add feature distillation (cosine similarity) to reduce geometric prior collapse when LoRA is fine-tuned.
 
 ## 2. Main Files
-- Training script: DEMT_DAv2_VectorLoRA.py
-- Config: cfg/DEMT_DAv2_VectorLoRA.yaml
+- VectorLoRA script: DEMT_DAv2_VectorLoRA.py
+- VectorLoRA config: cfg/DEMT_DAv2_VectorLoRA.yaml
+- Distill script: DEMT_DAv2_Distill.py
+- Distill config: cfg/DEMT_DAv2_Distill.yaml
 - LoRA utilities: utils/lora_utils.py
 - Teacher architecture: models/ResUNet.py (class DAv2Fusion_ResNet34U_f_EMAEncoderOnly)
 
@@ -72,7 +76,7 @@ Fix applied in `utils/lora_utils.py`:
 This prevents:
 - `RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu`
 
-## 7. Training Script Integration
+## 7. VectorLoRA Script Integration
 In `DEMT_DAv2_VectorLoRA.py`:
 1. import `inject_vector_lora_into_dav2`
 2. build student and teacher
@@ -80,8 +84,9 @@ In `DEMT_DAv2_VectorLoRA.py`:
 4. if `lora_params.enable_lora` is true, inject LoRA into `tea_model.dav2_encoder`
 5. build teacher optimizer from dynamic trainable params (`p.requires_grad == True`)
 6. keep baseline phase-1 and phase-2 loop/loss structure
+7. teacher optimizer uses param groups with LoRA lr = 0.1 * base lr
 
-## 8. Config for This Run
+## 8. VectorLoRA Config
 `cfg/DEMT_DAv2_VectorLoRA.yaml` adds:
 - lora_params.enable_lora: True
 - lora_params.base_rank: 16
@@ -89,7 +94,28 @@ In `DEMT_DAv2_VectorLoRA.py`:
 
 Other baseline hyperparameters are kept unchanged.
 
-## 9. Run Command Example
+## 9. Distill Script Integration
+In `DEMT_DAv2_Distill.py`:
+1. define `DAv2DistillTrainer` inheriting from the base DAv2 trainer
+2. keep phase 1 unchanged
+3. in phase 2, compute additional distill loss between:
+  - `f_lora`: current `tea_model.dav2_encoder` output
+  - `f_orig`: frozen `ref_encoder` output from pre-LoRA snapshot
+4. distill loss formula:
+  - `1 - cosine_similarity(global_f_lora, global_f_orig, dim=-1).mean()`
+5. add weighted distill loss to phase 2 total loss:
+  - `total_loss += distill_weight * distill_loss`
+6. log `phase2_distill_loss`
+
+`ref_encoder` is created as `copy.deepcopy(tea_model.dav2_encoder)` before LoRA injection and kept frozen throughout training.
+
+## 10. Distill Config
+`cfg/DEMT_DAv2_Distill.yaml` includes:
+- `Trainer.distill_weight: 0.1`
+- `Hook.ExtendMLFlowLoggerHook.logging_fields` includes `phase2_distill_loss`
+
+## 11. Run Commands
+VectorLoRA:
 Use the same command pattern:
 
 ```bash
@@ -105,13 +131,36 @@ python .\DEMT_DAv2_VectorLoRA.py \
   seed=1111
 ```
 
-## 10. Quick Verification Checklist
+Distill:
+
+```bash
+python .\DEMT_DAv2_Distill.py \
+  --optuna_trial_times 0 \
+  data.root=archive/polypDataset_final1/kvasir_SEG \
+  data.data2_dir='Train' \
+  data.test.dataset_root=archive/polypDataset_final1/kvasir_SEG/Test \
+  data.dataset=kvasir_SEG \
+  Hook.ExtendMLFlowLoggerHook.run_name='DEMT_DAv2_Distill' \
+  nEpoch=300 \
+  Hook.ExtendMLFlowLoggerHook.experiment_name='DEMT_DAv2_Distill' \
+  seed=1111
+```
+
+## 12. Quick Verification Checklist
 - Check console for Vector-LoRA injection summary lines.
 - Confirm non-zero trainable params after injection.
 - Confirm training starts past first teacher forward without device mismatch.
 - Confirm loss values are logged for phase1 and phase2.
 - Confirm checkpoints are saved by logger hook.
 
-## 11. Notes
+For distill run:
+- Confirm `phase2_distill_loss` appears in logs.
+- Expect `phase2_distill_loss` to be very small at the beginning (LoRA B is zero-initialized).
+- If it stays exactly 0.0 for many epochs, check:
+  - distill feature extraction path is active
+  - `dim=-1` cosine on pooled global features is used
+  - LoRA params are trainable and included in optimizer groups
+
+## 13. Notes
 - If a new DAv2 release changes attention module names, update fallback scanner patterns in `utils/lora_utils.py`.
 - If memory is tight, reduce rank schedule or disable LoRA by config.
