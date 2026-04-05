@@ -76,7 +76,7 @@ class DEMT_DAv2_ProtoConsistency(Trainer):
             tea_param.data.mul_(coeff).add_(stu_param.data, alpha=1 - coeff)
     def _momentum_update_prototype(self, prototype: torch.Tensor, new_features: torch.Tensor) -> torch.Tensor:
         return self.prototype_momentum * prototype + (1 - self.prototype_momentum) * new_features
-    def _update_prototype(self, current_prototype: torch.Tensor, new_features: torch.Tensor) -> torch.Tensor:
+    def _update_prototype(self, current_prototype: Optional[torch.Tensor], new_features: torch.Tensor) -> torch.Tensor:
         if current_prototype is None:
             return new_features.mean(dim=0)
         else:
@@ -90,6 +90,10 @@ class DEMT_DAv2_ProtoConsistency(Trainer):
         m = spatial_mask.reshape(-1)
         return f[m]
 
+    def _proto_loss(self, features: torch.Tensor, prototype: torch.Tensor) -> torch.Tensor:
+        sim = F.cosine_similarity(features, prototype.unsqueeze(0).expand_as(features), dim=1)
+        return (1 - sim).mean()
+        
     def _get_prototype_loss(self, global_step, labeled_features: torch.Tensor, unlabeled_features: torch.Tensor, label: torch.Tensor, unlabeled_output: torch.Tensor):
         ## first guard that warmup for prototype is done
         device = next(self.stu_model.parameters()).device
@@ -125,26 +129,12 @@ class DEMT_DAv2_ProtoConsistency(Trainer):
             return loss, attraction_loss, repulsion_loss
 
         if self.foreground_student_prototype is not None and self.background_student_prototype is not None:
-            attraction_loss = F.mse_loss(
-                foreground_batch, 
-                self.foreground_student_prototype.unsqueeze(0).expand_as(foreground_batch),
-                reduction='mean'
-            ) + F.mse_loss(
-                background_batch, 
-                self.background_student_prototype.unsqueeze(0).expand_as(background_batch),
-                reduction='mean'
-            )
-            repulsion_loss = F.mse_loss(
-                foreground_batch, 
-                self.background_student_prototype.unsqueeze(0).expand_as(foreground_batch),
-                reduction='mean'
-            ) + F.mse_loss(
-                background_batch, 
-                self.foreground_student_prototype.unsqueeze(0).expand_as(background_batch),
-                reduction='mean'
-            )
-            loss = attraction_loss - repulsion_loss * self.prototype_balance_weight
+            attraction_loss = self._proto_loss(foreground_batch, self.foreground_student_prototype) + \
+                self._proto_loss(background_batch, self.background_student_prototype)
+            repulsion_loss = self._proto_loss(background_batch, self.foreground_student_prototype) + \
+                self._proto_loss(foreground_batch, self.background_student_prototype)
 
+            loss = attraction_loss - repulsion_loss * self.prototype_balance_weight
         self.foreground_student_prototype = self._update_prototype(self.foreground_student_prototype, foreground_batch).detach()
         self.background_student_prototype = self._update_prototype(self.background_student_prototype, background_batch).detach()
         return loss, attraction_loss, repulsion_loss
