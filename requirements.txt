@@ -11,3 +11,6 @@ opencv-python>=4.8
 tqdm>=4.65
 mlflow>=2.0
 matplotlib>=3.7
+torchinfo
+transformers
+huggingface_hub

@@ -14,24 +14,24 @@ data:
   require_depth: true
   image_dirname: images
   mask_dirname: masks
-  depth_dirname: depth-v1
+  depth_dirname: depth_v2
   label_mode: percentage
   labeled_perc: 10
   labeled_bs: 2
   batch_size: 4
   shuffle: False
   num_workers: 0
-  val_split_perc: 20 # 20% of the training data for validation
+  val_split_perc: 0
   test:
     resize_width: 320
     resize_height: 320
     dataset_root: ../polypdepth_dataset/TestDataset/Kvasir 
     image_dirname: images
     mask_dirname: masks
-    depth_dirname: depth-v1
+    depth_dirname: depth_v2
     batch_size: 1
 
-total_iter: 50000
+nEpoch: 300
 
 optimizer:
   lr: 0.005 #
@@ -69,12 +69,13 @@ Hook:
     dir_save_plot: 'plots'
     logging_fields:
     - '*loss*'
+    - '*lr*'
     - '*weight*'
     - '*Dice*'
     - '*IoU*'
     - '*ACC_overall*'
-  StopTrainAtEpoch:
-    stop_at_epoch: 1000
+  # StopTrainAtEpoch:
+  #   stop_at_epoch: 1000
 
 score_criteria: test_stu_Dice
 

@@ -80,12 +80,22 @@ class ExtendMLFlowLoggerHook(MLFlowLoggerHook):
             self.patience = 0
 
     def after_train(self) -> None:
-        super().after_train()
+        ## log the last ckpt and the best ckpt then call the parent class
         if self.ckpt_info['ckpt'] is not None:
-            ckpt_name = f"final_{self.experiment_name}_epoch{self.ckpt_info['epoch']}.pth"
+            ckpt_name = f"best_{self.experiment_name}_epoch{self.ckpt_info['epoch']}.pth"
             ckpt_save_dir = os.path.join(self.local_dir_save_ckpt, ckpt_name)
             torch.save(self.ckpt_info['ckpt'], ckpt_save_dir)
-            print(f"Final model saved at {ckpt_save_dir}")
-            mlflow.log_artifact(ckpt_save_dir, artifact_path=os.path.join(self.dagshub_dir_save_ckpt, ckpt_name))
-            print(f"Final model logged to DagsHub MLflow!")
+            print(f"Best model saved at {ckpt_save_dir}")
+            mlflow.log_artifact(ckpt_save_dir, artifact_path=self.dagshub_dir_save_ckpt)
+            print(f"Best model logged to DagsHub MLflow!")
 
+        last_ckpt = copy.deepcopy(self.trainer.get_Trainer_ckpt())
+        last_epoch = self.trainer.current_epoch ## +1 already in trainer
+        last_ckpt_name = f"last_{self.experiment_name}_epoch{last_epoch}.pth"
+        last_ckpt_save_dir = os.path.join(self.local_dir_save_ckpt, last_ckpt_name)
+        torch.save(last_ckpt, last_ckpt_save_dir)
+        print(f"Last model saved at {last_ckpt_save_dir}")
+        mlflow.log_artifact(last_ckpt_save_dir, artifact_path=self.dagshub_dir_save_ckpt)
+        print(f"Last model logged to DagsHub MLflow!")
+
+        super().after_train()

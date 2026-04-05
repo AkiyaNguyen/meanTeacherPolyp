@@ -1,3 +1,4 @@
+
 **/__pycache__/
 
 mylib/
@@ -26,3 +27,17 @@ pretrained/
 **.jpg
 **.jpeg
 logs/
+plots/
+analyze_se_dice_gap.py
+check_subset.py
+evaluate_teacher_pixel_trick.py
+evaluate_teacher_pixel_trick_from_saved_masks.py
+export_student_teacher_masks.py
+final_demt.pth
+inference_kvasir.py
+requirements1.txt
+run_supervised_for_double_RGB.py
+temp_requirements.txt
+view_image_mask_depth.py
+visualize_demt_adddepth_predictions.py
+inference_kvasir.py

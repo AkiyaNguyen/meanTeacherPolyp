@@ -41,7 +41,7 @@
 #         self.consistency = consistency
 #         self.fea_sim_weight = fea_sim_weight
 #         self.class_criterion = BCEDiceLoss()
-#         self.consistency_criterion = SoftmaxMSELoss()
+#         self.consistency_criterion = MSELoss()
 #         self.dpa_loss = BCEDiceLoss()
 
 #     def _get_current_consistency_weight(self, global_step):

@@ -1,6 +1,6 @@
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, StopTrainAtEpoch
+from engine.Hook import LoggerHook, EvalHook
 from utils.hook import ExtendMLFlowLoggerHook
 import copy
 
@@ -19,8 +19,8 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-from utils.loss import SoftmaxMSELoss, BCEDiceLoss
-
+from utils.loss import MSELoss, BCEDiceLoss
+import utils.loss as loss
 
 
 class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
@@ -29,7 +29,7 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
     EMA copies entire student model -> teacher model
     """
     def __init__(self, stu_model, tea_model, train_dataloader, stu_optimizer, scheduler, num_epochs, ema_alpha,
-                 consistency_rampup, consistency, **kwargs) -> None:
+                 consistency_rampup, consistency, class_criterion, **kwargs) -> None:
         super().__init__(num_epochs, **kwargs)
         self.stu_model = stu_model
         self.tea_model = tea_model
@@ -43,8 +43,8 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
         self.consistency_rampup = consistency_rampup
         self.consistency = consistency
         # self.fea_sim_weight = fea_sim_weight
-        self.class_criterion = BCEDiceLoss()
-        self.consistency_criterion = SoftmaxMSELoss()
+        self.class_criterion = class_criterion
+        self.consistency_criterion = MSELoss()
         # self.dpa_loss = BCEDiceLoss()
 
     def _get_current_consistency_weight(self, global_step):
@@ -145,7 +145,9 @@ class MeanTeacherTrainer_EMAEncoderOnly_noDepth(Trainer):
             info['loss'].append(total_loss.item())
             self.scheduler.step()
 
-        self._add_info({f'{k}': np.mean(v) for k, v in info.items()})
+        out = {f'{k}': np.mean(v) for k, v in info.items()}
+        out.update(lr_logging_dict(self.stu_optimizer))
+        self._add_info(out)
 
         # # ========== PHASE 2: Train Teacher (depth/fusion/decoder), freeze rgb_encoder ==========
         # self.tea_model.train()
@@ -234,9 +236,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
-    nEpoch = cfg.get('total_iter') // iters_per_epoch
-    total_iter = cfg.get('total_iter')
-    print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
+    nEpoch = int(cfg.get('nEpoch', 300))
+    total_iter = nEpoch * iters_per_epoch
+    print(f"nEpoch: {nEpoch} | Iters/epoch: {iters_per_epoch} => total train steps: {total_iter}")
 
     stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
     tea_model = getattr(models, cfg.get('model.tea_model.name'))(num_classes=cfg.get('model.num_channels_output')).to(device)
@@ -253,6 +255,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
         ema_alpha=float(cfg.get('Trainer.ema_decay', 0.999)),
         consistency_rampup=float(cfg.get('Trainer.consistency_rampup')),
         consistency=float(cfg.get('Trainer.consistency')),
+        class_criterion=getattr(loss, cfg.get('Trainer.class_criterion', 'WeightedBCEDiceLoss')),
     )
     if cfg.get('Trainer.load_ckpt_path', None) is not None:
         trainer.load_Trainer_ckpt(torch.load(cfg.get('Trainer.load_ckpt_path')))
@@ -285,7 +288,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                  cfg=cfg,
                  )
                      
-    hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+    # hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
     trainer.train()
 

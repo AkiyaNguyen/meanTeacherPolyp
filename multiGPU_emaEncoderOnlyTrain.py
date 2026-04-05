@@ -1,6 +1,6 @@
 from engine.Config import Config, HookBuilder
 from engine.Trainer import Trainer
-from engine.Hook import LoggerHook, EvalHook, StopTrainAtEpoch
+from engine.Hook import LoggerHook, EvalHook
 from utils.hook import ExtendMLFlowLoggerHook
 import copy
 
@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from utils.ramps import sigmoid_rampup
 
 from utils.build_dataset import build_dataset
-from utils.loss import SoftmaxMSELoss, BCEDiceLoss
+from utils.loss import MSELoss, BCEDiceLoss
 from accelerate import Accelerator
 
 
@@ -45,7 +45,7 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
         self.consistency = consistency
         self.fea_sim_weight = fea_sim_weight
         self.class_criterion = BCEDiceLoss()
-        self.consistency_criterion = SoftmaxMSELoss()
+        self.consistency_criterion = MSELoss()
         self.dpa_loss = BCEDiceLoss()
 
     def prepare_accelerate(self, accelerator: Accelerator):
@@ -144,7 +144,9 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
             phase1_info['loss'].append(total_loss.item())
             self.scheduler.step()
 
-        self._add_info({f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()})
+        p1 = {f'phase1_{k}': np.mean(v) for k, v in phase1_info.items()}
+        p1.update(lr_logging_dict(self.stu_optimizer, 'lr'))
+        self._add_info(p1)
 
         # ========== PHASE 2: Train Teacher (depth/fusion/decoder), freeze rgb_encoder ==========
         for batch_id, data in enumerate(self.train_dataloader):
@@ -176,7 +178,9 @@ class DepthEnhance_MT_Trainer_EMAEncoderOnly(Trainer):
 
         if self.tea_scheduler is not None:
             self.tea_scheduler.step()
-        self._add_info({f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()})
+        p2 = {f'phase2_{k}': np.mean(v) for k, v in phase2_info.items()}
+        p2.update(lr_logging_dict_mean_teacher(self.stu_optimizer, self.tea_optimizer))
+        self._add_info(p2)
 
 
 class MeanTeacherEvalHook_EMAEncoderOnly(EvalHook):
@@ -240,9 +244,9 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
     iters_per_epoch = len(train_dataloader)
     if iters_per_epoch == 0:
         raise ValueError("Dataloader is empty!")
-    nEpoch = cfg.get('total_iter') // iters_per_epoch
-    total_iter = cfg.get('total_iter')
-    print(f"Total iterations: {total_iter} | Iters/epoch: {iters_per_epoch} => nEpoch: {nEpoch}")
+    nEpoch = int(cfg.get('nEpoch', 300))
+    total_iter = nEpoch * iters_per_epoch
+    print(f"nEpoch: {nEpoch} | Iters/epoch: {iters_per_epoch} => total train steps: {total_iter}")
 
     # accelerator will handle device placement
     stu_model = getattr(models, cfg.get('model.stu_model.name'))(num_classes=cfg.get('model.num_channels_output'))
@@ -313,7 +317,7 @@ def training(cfg: Config, trial: typing.Optional[optuna.trial.Trial] = None):
                  cfg=cfg,
                  )
     hook_builder(LoggerHook, logger_file='logs/simple.json')
-    hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
+    # hook_builder(StopTrainAtEpoch, stop_at_epoch=int(cfg.get('Hook.StopTrainAtEpoch.stop_at_epoch')))
 
     trainer.train()
 
