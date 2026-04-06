@@ -48,7 +48,7 @@ Trainer:
   teacher_reliable_threshold: 0.75
   student_reliable_threshold: 0.85
   depth_learn_from_stu_weight: 0.3
-  distill_weight: 0.1
+  distill_weight: 0.01
   contrastive_weight: 1.0
 
 lora_params:

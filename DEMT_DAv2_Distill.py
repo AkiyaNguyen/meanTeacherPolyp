@@ -352,7 +352,9 @@ class DAv2DistillTrainer(DAv2Fusion_MT_Trainer_addDepthTrainSignal):
                 )
             f_lora = self._to_global_feature(f_lora)
             f_orig = self._to_global_feature(f_orig)
-            distill_loss = 1 - F.cosine_similarity(f_lora, f_orig, dim=-1).mean()
+            # distill_loss = 1 - F.cosine_similarity(f_lora, f_orig, dim=-1).mean()
+            # Thay dòng tính distill_loss cũ bằng:
+            distill_loss = (1 - F.cosine_similarity(f_lora, f_orig, dim=1)).clamp(min=0.0).mean()
 
             total_loss = loss_tea_sup + depth_learn_from_stu_loss * self.depth_learn_from_stu_weight + distill_loss * self.distill_weight
 
